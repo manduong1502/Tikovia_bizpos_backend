@@ -1,0 +1,293 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Người dùng / Nhân viên ───
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  email     String?  @unique
+  password  String
+  fullName  String
+  phone     String?
+  role      Role     @default(STAFF)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders         Order[]
+  cashbookEntries CashbookEntry[]
+
+  @@index([username])
+  @@index([email])
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+// ─── Nhóm hàng ───
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  note      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  products Product[]
+
+  @@index([name])
+}
+
+// ─── Hàng hóa ───
+model Product {
+  id          Int      @id @default(autoincrement())
+  sku         String   @unique        // Mã hàng
+  name        String                  // Tên hàng
+  barcode     String?  @unique        // Mã vạch
+  categoryId  Int?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  costPrice   Decimal  @default(0) @db.Decimal(15, 2)  // Giá vốn
+  sellPrice   Decimal  @default(0) @db.Decimal(15, 2)  // Giá bán
+  stock       Int      @default(0)                      // Tồn kho
+  minStock    Int      @default(0)                      // Tồn kho tối thiểu
+  unit        String   @default("Cái")                  // Đơn vị tính
+  image       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderItems       OrderItem[]
+  returnItems      ReturnItem[]
+  purchaseItems    PurchaseOrderItem[]
+  inventoryChecks  InventoryCheck[]
+
+  @@index([sku])
+  @@index([barcode])
+  @@index([name])
+  @@index([categoryId])
+}
+
+// ─── Khách hàng ───
+model Customer {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique        // Mã KH
+  name        String
+  phone       String?  @unique
+  email       String?
+  address     String?
+  note        String?
+  totalSpent  Decimal  @default(0) @db.Decimal(15, 2)
+  totalOrders Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders  Order[]
+  returns Return[]
+
+  @@index([code])
+  @@index([phone])
+  @@index([name])
+}
+
+// ─── Nhà cung cấp ───
+model Supplier {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  phone       String?
+  email       String?
+  address     String?
+  note        String?
+  totalDebt   Decimal  @default(0) @db.Decimal(15, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+
+  @@index([code])
+  @@index([name])
+}
+
+// ─── Đơn hàng (Bán hàng) ───
+model Order {
+  id            Int         @id @default(autoincrement())
+  code          String      @unique   // Mã đơn: HD000001
+  customerId    Int?
+  customer      Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  userId        Int
+  user          User        @relation(fields: [userId], references: [id])
+  status        OrderStatus @default(COMPLETED)
+  subtotal      Decimal     @default(0) @db.Decimal(15, 2)
+  discount      Decimal     @default(0) @db.Decimal(15, 2)
+  total         Decimal     @default(0) @db.Decimal(15, 2)
+  paid          Decimal     @default(0) @db.Decimal(15, 2)
+  paymentMethod PaymentMethod @default(CASH)
+  note          String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  items   OrderItem[]
+  returns Return[]
+
+  @@index([code])
+  @@index([customerId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+enum OrderStatus {
+  COMPLETED
+  CANCELLED
+  PENDING
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  MIXED
+}
+
+// ─── Chi tiết đơn hàng ───
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  price     Decimal @db.Decimal(15, 2)   // Giá bán tại thời điểm
+  discount  Decimal @default(0) @db.Decimal(15, 2)
+  total     Decimal @db.Decimal(15, 2)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// ─── Trả hàng ───
+model Return {
+  id         Int          @id @default(autoincrement())
+  code       String       @unique
+  orderId    Int
+  order      Order        @relation(fields: [orderId], references: [id])
+  customerId Int?
+  customer   Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  total      Decimal      @default(0) @db.Decimal(15, 2)
+  reason     String?
+  status     ReturnStatus @default(COMPLETED)
+  createdAt  DateTime     @default(now())
+
+  items ReturnItem[]
+
+  @@index([code])
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+enum ReturnStatus {
+  COMPLETED
+  CANCELLED
+}
+
+model ReturnItem {
+  id        Int     @id @default(autoincrement())
+  returnId  Int
+  return    Return  @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  price     Decimal @db.Decimal(15, 2)
+  total     Decimal @db.Decimal(15, 2)
+
+  @@index([returnId])
+  @@index([productId])
+}
+
+// ─── Nhập hàng (Mua hàng) ───
+model PurchaseOrder {
+  id         Int                 @id @default(autoincrement())
+  code       String              @unique
+  supplierId Int
+  supplier   Supplier            @relation(fields: [supplierId], references: [id])
+  status     PurchaseOrderStatus @default(PENDING)
+  total      Decimal             @default(0) @db.Decimal(15, 2)
+  paid       Decimal             @default(0) @db.Decimal(15, 2)
+  note       String?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  items PurchaseOrderItem[]
+
+  @@index([code])
+  @@index([supplierId])
+  @@index([createdAt])
+}
+
+enum PurchaseOrderStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+model PurchaseOrderItem {
+  id              Int           @id @default(autoincrement())
+  purchaseOrderId Int
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId       Int
+  product         Product       @relation(fields: [productId], references: [id])
+  quantity        Int
+  price           Decimal       @db.Decimal(15, 2)
+  total           Decimal       @db.Decimal(15, 2)
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+}
+
+// ─── Kiểm kho ───
+model InventoryCheck {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
+  productId     Int
+  product       Product  @relation(fields: [productId], references: [id])
+  systemQty     Int                       // Tồn hệ thống
+  actualQty     Int                       // Tồn thực tế
+  difference    Int                       // Chênh lệch
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([code])
+  @@index([productId])
+  @@index([createdAt])
+}
+
+// ─── Sổ quỹ ───
+model CashbookEntry {
+  id          Int            @id @default(autoincrement())
+  code        String         @unique
+  type        CashbookType
+  amount      Decimal        @db.Decimal(15, 2)
+  description String
+  userId      Int
+  user        User           @relation(fields: [userId], references: [id])
+  createdAt   DateTime       @default(now())
+
+  @@index([type])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+enum CashbookType {
+  INCOME
+  EXPENSE
+}
