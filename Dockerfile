@@ -21,8 +21,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 
-RUN npm ci --only=production
-RUN npx prisma generate
+RUN npm ci --omit=dev
+RUN npx prisma@6.4.1 generate
 
 COPY --from=builder /app/dist ./dist
 
