@@ -10,7 +10,7 @@ RUN npm install
 
 COPY . .
 
-RUN npx prisma generate
+RUN npx prisma@6.4.1 generate
 RUN npx tsc
 
 # Production stage
