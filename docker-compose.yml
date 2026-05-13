@@ -37,17 +37,6 @@ services:
     depends_on:
       bizpos-db:
         condition: service_healthy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.tiko-bizpos-api.rule=Host(`api.tikovia.vn`)"
-      - "traefik.http.services.tiko-bizpos-api.loadbalancer.server.port=4001"
-    networks:
-      - coolify
-      - default
 
 volumes:
   bizpos_pgdata:
-
-networks:
-  coolify:
-    external: true
