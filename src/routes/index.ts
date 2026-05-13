@@ -8,6 +8,10 @@ import { supplierController } from '../controllers/supplierController';
 import { dashboardController } from '../controllers/dashboardController';
 import { userController } from '../controllers/userController';
 import { cashbookController } from '../controllers/cashbookController';
+import { purchaseOrderController } from '../controllers/purchaseOrderController';
+import { returnController } from '../controllers/returnController';
+import { inventoryCheckController } from '../controllers/inventoryCheckController';
+import { reportController } from '../controllers/reportController';
 import { authenticate, authorize } from '../middlewares/auth';
 
 const router = Router();
@@ -50,6 +54,27 @@ router.get('/dashboard', authenticate, dashboardController.get);
 router.get('/users', authenticate, authorize('ADMIN', 'MANAGER'), userController.getAll);
 router.put('/users/:id', authenticate, authorize('ADMIN'), userController.update);
 router.patch('/users/:id/toggle', authenticate, authorize('ADMIN'), userController.toggleActive);
+
+
+// ─── Purchase Orders (Nhập hàng) ───
+router.get('/purchase-orders', authenticate, purchaseOrderController.getAll);
+router.get('/purchase-orders/:id', authenticate, purchaseOrderController.getById);
+router.post('/purchase-orders', authenticate, authorize('ADMIN', 'MANAGER'), purchaseOrderController.create);
+router.put('/purchase-orders/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), purchaseOrderController.cancel);
+
+// ─── Returns (Trả hàng) ───
+router.get('/returns', authenticate, returnController.getAll);
+router.get('/returns/:id', authenticate, returnController.getById);
+router.post('/returns', authenticate, authorize('ADMIN', 'MANAGER'), returnController.create);
+
+// ─── Inventory Checks (Kiểm kho) ───
+router.get('/inventory-checks', authenticate, inventoryCheckController.getAll);
+router.post('/inventory-checks', authenticate, authorize('ADMIN', 'MANAGER'), inventoryCheckController.create);
+
+// ─── Reports (Báo cáo) ───
+router.get('/reports/end-of-day', authenticate, reportController.endOfDay);
+router.get('/reports/sales', authenticate, reportController.sales);
+router.get('/reports/products', authenticate, reportController.products);
 
 // ─── Cashbook ───
 router.get('/cashbook', authenticate, cashbookController.getAll);
