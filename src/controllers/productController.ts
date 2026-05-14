@@ -106,7 +106,7 @@ export const productController = {
       }
 
       const product = await prisma.product.create({
-        data,
+        data: data as any,
         include: { 
           category: { select: { id: true, name: true } },
           brand: { select: { id: true, name: true } }
@@ -129,7 +129,7 @@ export const productController = {
 
       const product = await prisma.product.update({
         where: { id: Number(req.params.id) },
-        data,
+        data: data as any,
         include: { 
           category: { select: { id: true, name: true } },
           brand: { select: { id: true, name: true } }
