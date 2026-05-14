@@ -4,7 +4,7 @@ import prisma from '../config/database';
 import { config } from '../config';
 
 const productSchema = z.object({
-  sku: z.string().min(1, 'Mã hàng không được trống'),
+  sku: z.string().optional().nullable(),
   name: z.string().min(1, 'Tên hàng không được trống'),
   barcode: z.string().optional().nullable(),
   categoryId: z.number().int().optional().nullable(),
@@ -99,6 +99,12 @@ export const productController = {
   create: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = productSchema.parse(req.body);
+      
+      // Auto-generate sku if empty
+      if (!data.sku || data.sku.trim() === '') {
+        data.sku = `SP${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+      }
+
       const product = await prisma.product.create({
         data,
         include: { 
@@ -115,7 +121,12 @@ export const productController = {
   // PUT /api/products/:id
   update: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const data = productSchema.partial().parse(req.body);
+      const data = productSchema.parse(req.body);
+      
+      if (data.sku === '') {
+        delete data.sku; // Do not overwrite with empty string
+      }
+
       const product = await prisma.product.update({
         where: { id: Number(req.params.id) },
         data,
