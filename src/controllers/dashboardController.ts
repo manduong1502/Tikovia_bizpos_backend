@@ -9,6 +9,14 @@ export const dashboardController = {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
+      // Date range for this month
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+      
+      // Date range for previous month
+      const startOfPrevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const endOfPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
+
       // All queries run in parallel for speed
       const [
         todayOrders,
@@ -18,6 +26,11 @@ export const dashboardController = {
         lowStockProducts,
         totalCustomers,
         recentOrders,
+        monthlyRevenueAggr,
+        prevMonthRevenueAggr,
+        topProductsDb,
+        topCustomersDb,
+        dailyRevenuesDb
       ] = await Promise.all([
         // Đơn hàng hôm nay
         prisma.order.count({
@@ -36,7 +49,7 @@ export const dashboardController = {
         prisma.product.count({ where: { isActive: true } }),
         // Sản phẩm sắp hết hàng
         prisma.product.count({
-          where: { isActive: true, stock: { lte: prisma.product.fields?.minStock || 5 } },
+          where: { isActive: true, stock: { lte: 5 } }, // Hardcode 5 for now since minStock might not exist
         }).catch(() => 0),
         // Tổng khách hàng
         prisma.customer.count(),
@@ -49,12 +62,76 @@ export const dashboardController = {
             user: { select: { fullName: true } },
           },
         }),
+        // Doanh thu tháng này
+        prisma.order.aggregate({
+          where: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
+          _sum: { total: true },
+        }),
+        // Doanh thu tháng trước
+        prisma.order.aggregate({
+          where: { createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: 'COMPLETED' },
+          _sum: { total: true },
+        }),
+        // Top hàng bán chạy (theo tháng này)
+        prisma.orderItem.groupBy({
+          by: ['productId', 'productName'],
+          where: { order: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' } },
+          _sum: { quantity: true, total: true },
+          orderBy: { _sum: { quantity: 'desc' } },
+          take: 5,
+        }),
+        // Top khách chi tiêu (theo tháng này)
+        prisma.order.groupBy({
+          by: ['customerId'],
+          where: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED', customerId: { not: null } },
+          _sum: { total: true },
+          _count: { id: true },
+          orderBy: { _sum: { total: 'desc' } },
+          take: 5,
+        }),
+        // Doanh thu theo ngày trong tháng này
+        prisma.order.findMany({
+          where: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
+          select: { createdAt: true, total: true }
+        })
       ]);
+
+      // Process daily revenues manually since Prisma doesn't support grouping by day easily in all DBs
+      const dailyRevenuesMap = new Map();
+      dailyRevenuesDb.forEach(order => {
+        const day = order.createdAt.getDate();
+        dailyRevenuesMap.set(day, (dailyRevenuesMap.get(day) || 0) + Number(order.total || 0));
+      });
+      const daily_revenues = Array.from({ length: endOfMonth.getDate() }, (_, i) => ({
+        day: i + 1,
+        revenue: dailyRevenuesMap.get(i + 1) || 0
+      }));
+
+      // Enrich top customers with name
+      const topCustomersIds = topCustomersDb.map(c => c.customerId).filter(id => id !== null) as number[];
+      const customersData = await prisma.customer.findMany({
+        where: { id: { in: topCustomersIds } },
+        select: { id: true, name: true }
+      });
+      const top_customers = topCustomersDb.map(c => {
+        const cust = customersData.find(cd => cd.id === c.customerId);
+        return {
+          name: cust?.name || 'Khách lẻ',
+          total_spent: Number(c._sum.total || 0),
+          order_count: Number(c._count.id || 0)
+        };
+      });
+
+      const top_products = topProductsDb.map(p => ({
+        name: p.productName || 'Sản phẩm',
+        total_sold: Number(p._sum.quantity || 0),
+        total_revenue: Number(p._sum.total || 0)
+      }));
 
       res.json({
         todayStats: {
           orders: todayOrders,
-          revenue: todayRevenue._sum.total || 0,
+          revenue: Number(todayRevenue._sum.total || 0),
           returns: todayReturns,
         },
         overview: {
@@ -63,6 +140,11 @@ export const dashboardController = {
           totalCustomers,
         },
         recentOrders,
+        monthly_revenue: Number(monthlyRevenueAggr._sum.total || 0),
+        prev_month_revenue: Number(prevMonthRevenueAggr._sum.total || 0),
+        top_products,
+        top_customers,
+        daily_revenues
       });
     } catch (error) {
       next(error);
