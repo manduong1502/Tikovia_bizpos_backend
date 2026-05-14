@@ -12,6 +12,7 @@ import { purchaseOrderController } from '../controllers/purchaseOrderController'
 import { returnController } from '../controllers/returnController';
 import { inventoryCheckController } from '../controllers/inventoryCheckController';
 import { reportController } from '../controllers/reportController';
+import { brandController } from '../controllers/brandController';
 import { authenticate, authorize } from '../middlewares/auth';
 
 const router = Router();
@@ -27,6 +28,10 @@ router.get('/categories', authenticate, categoryController.getAll);
 router.post('/categories', authenticate, categoryController.create);
 router.put('/categories/:id', authenticate, categoryController.update);
 router.delete('/categories/:id', authenticate, authorize('ADMIN', 'MANAGER'), categoryController.delete);
+
+// ─── Brands ───
+router.get('/brands', authenticate, brandController.getAll);
+router.post('/brands', authenticate, brandController.create);
 
 // ─── Customers ───
 router.get('/customers', authenticate, customerController.getAll);

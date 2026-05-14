@@ -58,13 +58,22 @@ model Product {
   barcode     String?  @unique        // Mã vạch
   categoryId  Int?
   category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brandId     Int?
+  brand       Brand?   @relation(fields: [brandId], references: [id], onDelete: SetNull)
   costPrice   Decimal  @default(0) @db.Decimal(15, 2)  // Giá vốn
   sellPrice   Decimal  @default(0) @db.Decimal(15, 2)  // Giá bán
   stock       Int      @default(0)                      // Tồn kho
   minStock    Int      @default(0)                      // Tồn kho tối thiểu
+  maxStock    Int      @default(999999999)              // Tồn kho tối đa
   unit        String   @default("Cái")                  // Đơn vị tính
+  weight      Decimal? @db.Decimal(10, 2)               // Trọng lượng
+  weightUnit  String   @default("g")                    // Đơn vị trọng lượng
+  location    String?                                   // Vị trí
+  description String?  @db.Text                         // Mô tả
+  note        String?  @db.Text                         // Mẫu ghi chú
   image       String?
   isActive    Boolean  @default(true)
+  directSale  Boolean  @default(true)                   // Bán trực tiếp
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -77,6 +86,14 @@ model Product {
   @@index([barcode])
   @@index([name])
   @@index([categoryId])
+  @@index([brandId])
+}
+
+// ─── Thương hiệu ───
+model Brand {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  products  Product[]
 }
 
 // ─── Khách hàng ───

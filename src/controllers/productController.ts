@@ -8,13 +8,21 @@ const productSchema = z.object({
   name: z.string().min(1, 'Tên hàng không được trống'),
   barcode: z.string().optional().nullable(),
   categoryId: z.number().int().optional().nullable(),
+  brandId: z.number().int().optional().nullable(),
   costPrice: z.number().min(0).default(0),
   sellPrice: z.number().min(0).default(0),
   stock: z.number().int().default(0),
   minStock: z.number().int().default(0),
+  maxStock: z.number().int().default(999999999),
   unit: z.string().default('Cái'),
+  weight: z.number().min(0).optional().nullable(),
+  weightUnit: z.string().default('g'),
+  location: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  note: z.string().optional().nullable(),
   image: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
+  directSale: z.boolean().default(true),
 });
 
 export const productController = {
@@ -23,7 +31,10 @@ export const productController = {
     try {
       const products = await prisma.product.findMany({
         where: { isActive: true },
-        include: { category: { select: { id: true, name: true } } },
+        include: { 
+          category: { select: { id: true, name: true } },
+          brand: { select: { id: true, name: true } }
+        },
         orderBy: { createdAt: 'desc' },
       });
       res.json(products);
@@ -53,7 +64,10 @@ export const productController = {
       const [data, total] = await Promise.all([
         prisma.product.findMany({
           where,
-          include: { category: { select: { id: true, name: true } } },
+          include: { 
+            category: { select: { id: true, name: true } },
+            brand: { select: { id: true, name: true } }
+          },
           skip: (page - 1) * limit,
           take: limit,
           orderBy: { createdAt: 'desc' },
@@ -72,7 +86,7 @@ export const productController = {
     try {
       const product = await prisma.product.findUnique({
         where: { id: Number(req.params.id) },
-        include: { category: true },
+        include: { category: true, brand: true },
       });
       if (!product) return res.status(404).json({ message: 'Không tìm thấy hàng hóa' });
       res.json(product);
@@ -87,7 +101,10 @@ export const productController = {
       const data = productSchema.parse(req.body);
       const product = await prisma.product.create({
         data,
-        include: { category: { select: { id: true, name: true } } },
+        include: { 
+          category: { select: { id: true, name: true } },
+          brand: { select: { id: true, name: true } }
+        },
       });
       res.status(201).json(product);
     } catch (error) {
@@ -102,7 +119,10 @@ export const productController = {
       const product = await prisma.product.update({
         where: { id: Number(req.params.id) },
         data,
-        include: { category: { select: { id: true, name: true } } },
+        include: { 
+          category: { select: { id: true, name: true } },
+          brand: { select: { id: true, name: true } }
+        },
       });
       res.json(product);
     } catch (error) {
