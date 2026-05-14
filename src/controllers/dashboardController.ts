@@ -74,7 +74,7 @@ export const dashboardController = {
         }),
         // Top hàng bán chạy (theo tháng này)
         prisma.orderItem.groupBy({
-          by: ['productId', 'productName'],
+          by: ['productId'],
           where: { order: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' } },
           _sum: { quantity: true, total: true },
           orderBy: { _sum: { quantity: 'desc' } },
@@ -122,11 +122,19 @@ export const dashboardController = {
         };
       });
 
-      const top_products = topProductsDb.map(p => ({
-        name: p.productName || 'Sản phẩm',
-        total_sold: Number(p._sum.quantity || 0),
-        total_revenue: Number(p._sum.total || 0)
-      }));
+      const topProductsIds = topProductsDb.map(p => p.productId).filter(id => id !== null) as number[];
+      const productsData = await prisma.product.findMany({
+        where: { id: { in: topProductsIds } },
+        select: { id: true, name: true }
+      });
+      const top_products = topProductsDb.map(p => {
+        const prod = productsData.find(pd => pd.id === p.productId);
+        return {
+          name: prod?.name || 'Sản phẩm',
+          total_sold: Number(p._sum?.quantity || 0),
+          total_revenue: Number(p._sum?.total || 0)
+        };
+      });
 
       res.json({
         todayStats: {
