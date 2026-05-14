@@ -6,15 +6,15 @@ import { AuthRequest } from '../middlewares/auth';
 const orderItemSchema = z.object({
   productId: z.number().int(),
   quantity: z.number().int().min(1),
-  price: z.number().min(0),
-  discount: z.number().min(0).default(0),
+  price: z.coerce.number().min(0),
+  discount: z.coerce.number().min(0).default(0),
 });
 
 const createOrderSchema = z.object({
   customerId: z.number().int().optional().nullable(),
   items: z.array(orderItemSchema).min(1, 'Đơn hàng phải có ít nhất 1 sản phẩm'),
-  discount: z.number().min(0).default(0),
-  paid: z.number().min(0).default(0),
+  discount: z.coerce.number().min(0).default(0),
+  paid: z.coerce.number().min(0).default(0),
   paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'MIXED']).default('CASH'),
   note: z.string().optional().nullable(),
 });
