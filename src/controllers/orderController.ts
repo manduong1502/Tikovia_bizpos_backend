@@ -5,7 +5,7 @@ import { AuthRequest } from '../middlewares/auth';
 
 const orderItemSchema = z.object({
   productId: z.number().int(),
-  quantity: z.number().int().min(1),
+  quantity: z.number().min(0.001),
   price: z.coerce.number().min(0),
   discount: z.coerce.number().min(0).default(0),
 });

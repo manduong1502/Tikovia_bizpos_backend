@@ -62,9 +62,9 @@ model Product {
   brand       Brand?   @relation(fields: [brandId], references: [id], onDelete: SetNull)
   costPrice   Decimal  @default(0) @db.Decimal(15, 2)  // Giá vốn
   sellPrice   Decimal  @default(0) @db.Decimal(15, 2)  // Giá bán
-  stock       Int      @default(0)                      // Tồn kho
-  minStock    Int      @default(0)                      // Tồn kho tối thiểu
-  maxStock    Int      @default(999999999)              // Tồn kho tối đa
+  stock       Float    @default(0)                      // Tồn kho
+  minStock    Float    @default(0)                      // Tồn kho tối thiểu
+  maxStock    Float    @default(999999999)              // Tồn kho tối đa
   unit        String   @default("Cái")                  // Đơn vị tính
   weight      Decimal? @db.Decimal(10, 2)               // Trọng lượng
   weightUnit  String   @default("g")                    // Đơn vị trọng lượng
@@ -185,7 +185,7 @@ model OrderItem {
   order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId Int
   product   Product @relation(fields: [productId], references: [id])
-  quantity  Int
+  quantity  Float
   price     Decimal @db.Decimal(15, 2)   // Giá bán tại thời điểm
   discount  Decimal @default(0) @db.Decimal(15, 2)
   total     Decimal @db.Decimal(15, 2)
@@ -225,7 +225,7 @@ model ReturnItem {
   return    Return  @relation(fields: [returnId], references: [id], onDelete: Cascade)
   productId Int
   product   Product @relation(fields: [productId], references: [id])
-  quantity  Int
+  quantity  Float
   price     Decimal @db.Decimal(15, 2)
   total     Decimal @db.Decimal(15, 2)
 
@@ -265,7 +265,7 @@ model PurchaseOrderItem {
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   productId       Int
   product         Product       @relation(fields: [productId], references: [id])
-  quantity        Int
+  quantity        Float
   price           Decimal       @db.Decimal(15, 2)
   total           Decimal       @db.Decimal(15, 2)
 
