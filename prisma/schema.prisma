@@ -106,6 +106,7 @@ model Customer {
   address     String?
   note        String?
   totalSpent  Decimal  @default(0) @db.Decimal(15, 2)
+  totalDebt   Decimal  @default(0) @db.Decimal(15, 2)
   totalOrders Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

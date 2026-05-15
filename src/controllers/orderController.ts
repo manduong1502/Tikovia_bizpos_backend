@@ -142,13 +142,15 @@ export const orderController = {
           });
         }
 
-        // Update customer total if applicable
+        // Update Customer metrics if any
         if (body.customerId) {
+          const debtChange = total - body.paid;
           await tx.customer.update({
             where: { id: body.customerId },
             data: {
               totalSpent: { increment: total },
               totalOrders: { increment: 1 },
+              totalDebt: { increment: debtChange },
             },
           });
         }
