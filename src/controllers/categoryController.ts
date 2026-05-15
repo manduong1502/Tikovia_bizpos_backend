@@ -5,16 +5,34 @@ import prisma from '../config/database';
 const categorySchema = z.object({
   name: z.string().min(1, 'Tên nhóm hàng không được trống'),
   note: z.string().optional().nullable(),
+  parentId: z.number().int().optional().nullable(),
 });
 
 export const categoryController = {
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const categories = await prisma.category.findMany({
-        include: { _count: { select: { products: true } } },
+        where: { parentId: null },
+        include: {
+          _count: { select: { products: true, children: true } },
+          children: {
+            include: {
+              _count: { select: { products: true, children: true } },
+              children: {
+                include: {
+                  _count: { select: { products: true, children: true } },
+                },
+              },
+            },
+          },
+        },
         orderBy: { name: 'asc' },
       });
-      res.json(categories);
+
+      // Also fetch all categories (flat) for total count
+      const totalCount = await prisma.category.count();
+
+      res.json({ roots: categories, totalCount });
     } catch (error) {
       next(error);
     }
@@ -23,7 +41,10 @@ export const categoryController = {
   create: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = categorySchema.parse(req.body);
-      const category = await prisma.category.create({ data });
+      const category = await prisma.category.create({
+        data,
+        include: { _count: { select: { products: true, children: true } } },
+      });
       res.status(201).json(category);
     } catch (error) {
       next(error);
@@ -36,6 +57,7 @@ export const categoryController = {
       const category = await prisma.category.update({
         where: { id: Number(req.params.id) },
         data,
+        include: { _count: { select: { products: true, children: true } } },
       });
       res.json(category);
     } catch (error) {
@@ -45,6 +67,11 @@ export const categoryController = {
 
   delete: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Move children to root before deleting
+      await prisma.category.updateMany({
+        where: { parentId: Number(req.params.id) },
+        data: { parentId: null },
+      });
       await prisma.category.delete({ where: { id: Number(req.params.id) } });
       res.json({ message: 'Đã xóa nhóm hàng' });
     } catch (error) {
