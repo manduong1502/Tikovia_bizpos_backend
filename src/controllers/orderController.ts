@@ -26,6 +26,33 @@ async function generateOrderCode(): Promise<string> {
   return `HD${String(nextNum).padStart(6, '0')}`;
 }
 
+function parseExcelDate(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date && !isNaN(val.getTime())) return val;
+  const num = Number(val);
+  if (!isNaN(num) && num > 10000 && num < 99999) {
+    const ms = (num - 25569) * 86400 * 1000;
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) return d;
+  }
+  if (!isNaN(num) && num > 1000000000000) {
+    const d = new Date(num);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const str = String(val).trim();
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return d;
+  const parts = str.split(/[/\-_]/);
+  if (parts.length >= 3) {
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const year = parseInt(parts[2], 10);
+    const d2 = new Date(year, month, day);
+    if (!isNaN(d2.getTime())) return d2;
+  }
+  return null;
+}
+
 export const orderController = {
   // GET /api/orders — phân trang + lọc
   getAll: async (req: Request, res: Response, next: NextFunction) => {
@@ -316,7 +343,7 @@ export const orderController = {
                 priceBook: orderData.priceBook || null,
                 channel: orderData.channel || null,
                 status: 'COMPLETED',
-                createdAt: orderData.createdAt ? new Date(orderData.createdAt) : new Date(),
+                createdAt: parseExcelDate(orderData.createdAt) || new Date(),
                 items: { create: itemsToCreate },
               }
             });
@@ -336,7 +363,7 @@ export const orderController = {
                 priceBook: orderData.priceBook || null,
                 channel: orderData.channel || null,
                 status: 'COMPLETED',
-                createdAt: orderData.createdAt ? new Date(orderData.createdAt) : new Date(),
+                createdAt: parseExcelDate(orderData.createdAt) || new Date(),
                 items: { create: itemsToCreate },
               },
             });
