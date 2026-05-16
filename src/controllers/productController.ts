@@ -9,6 +9,7 @@ const productSchema = z.object({
   barcode: z.string().optional().nullable(),
   categoryId: z.number().int().optional().nullable(),
   brandId: z.number().int().optional().nullable(),
+  supplierId: z.number().int().optional().nullable(),
   costPrice: z.number().min(0).default(0),
   sellPrice: z.number().min(0).default(0),
   stock: z.number().default(0),
@@ -33,7 +34,8 @@ export const productController = {
         where: { isActive: true },
         include: { 
           category: { select: { id: true, name: true } },
-          brand: { select: { id: true, name: true } }
+          brand: { select: { id: true, name: true } },
+          supplier: { select: { id: true, name: true } }
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -66,7 +68,8 @@ export const productController = {
           where,
           include: { 
             category: { select: { id: true, name: true } },
-            brand: { select: { id: true, name: true } }
+            brand: { select: { id: true, name: true } },
+            supplier: { select: { id: true, name: true } }
           },
           skip: (page - 1) * limit,
           take: limit,
@@ -86,7 +89,7 @@ export const productController = {
     try {
       const product = await prisma.product.findUnique({
         where: { id: Number(req.params.id) },
-        include: { category: true, brand: true },
+        include: { category: true, brand: true, supplier: true },
       });
       if (!product) return res.status(404).json({ message: 'Không tìm thấy hàng hóa' });
       res.json(product);
@@ -109,7 +112,8 @@ export const productController = {
         data: data as any,
         include: { 
           category: { select: { id: true, name: true } },
-          brand: { select: { id: true, name: true } }
+          brand: { select: { id: true, name: true } },
+          supplier: { select: { id: true, name: true } }
         },
       });
       res.status(201).json(product);
@@ -132,7 +136,8 @@ export const productController = {
         data: data as any,
         include: { 
           category: { select: { id: true, name: true } },
-          brand: { select: { id: true, name: true } }
+          brand: { select: { id: true, name: true } },
+          supplier: { select: { id: true, name: true } }
         },
       });
       res.json(product);

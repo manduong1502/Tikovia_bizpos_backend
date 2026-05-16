@@ -64,6 +64,8 @@ model Product {
   category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   brandId     Int?
   brand       Brand?   @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  supplierId  Int?
+  supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   costPrice   Decimal  @default(0) @db.Decimal(15, 2)  // Giá vốn
   sellPrice   Decimal  @default(0) @db.Decimal(15, 2)  // Giá bán
   stock       Float    @default(0)                      // Tồn kho
@@ -91,6 +93,7 @@ model Product {
   @@index([name])
   @@index([categoryId])
   @@index([brandId])
+  @@index([supplierId])
 }
 
 // ─── Thương hiệu ───
@@ -137,6 +140,7 @@ model Supplier {
   updatedAt   DateTime @updatedAt
 
   purchaseOrders PurchaseOrder[]
+  products       Product[]
 
   @@index([code])
   @@index([name])
