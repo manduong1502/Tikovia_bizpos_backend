@@ -289,8 +289,8 @@ model PurchaseOrderItem {
 model PurchaseReturn {
   id              Int                  @id @default(autoincrement())
   code            String               @unique // THN000001
-  purchaseOrderId Int
-  purchaseOrder   PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrderId Int?
+  purchaseOrder   PurchaseOrder?       @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
   supplierId      Int
   supplier        Supplier             @relation(fields: [supplierId], references: [id])
   status          PurchaseReturnStatus @default(COMPLETED)

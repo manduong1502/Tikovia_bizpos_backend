@@ -11,7 +11,7 @@ const purchaseReturnItemSchema = z.object({
 });
 
 const createPurchaseReturnSchema = z.object({
-  purchaseOrderId: z.number().int(),
+  purchaseOrderId: z.number().int().optional().nullable(),
   supplierId: z.number().int(),
   items: z.array(purchaseReturnItemSchema).min(1, 'Đơn trả hàng phải có ít nhất 1 sản phẩm'),
   paid: z.number().min(0).default(0), // Tiền NCC trả
@@ -116,7 +116,7 @@ export const purchaseReturnController = {
         const newPR = await tx.purchaseReturn.create({
           data: {
             code,
-            purchaseOrderId: body.purchaseOrderId,
+            purchaseOrderId: body.purchaseOrderId || null,
             supplierId: body.supplierId,
             status: body.status,
             total,
