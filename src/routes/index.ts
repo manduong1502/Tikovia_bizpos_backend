@@ -9,6 +9,7 @@ import { dashboardController } from '../controllers/dashboardController';
 import { userController } from '../controllers/userController';
 import { cashbookController } from '../controllers/cashbookController';
 import { purchaseOrderController } from '../controllers/purchaseOrderController';
+import { purchaseReturnController } from '../controllers/purchaseReturnController';
 import { returnController } from '../controllers/returnController';
 import { inventoryCheckController } from '../controllers/inventoryCheckController';
 import { reportController } from '../controllers/reportController';
@@ -69,7 +70,12 @@ router.put('/purchase-orders/:id', authenticate, authorize('ADMIN', 'MANAGER'), 
 router.put('/purchase-orders/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), purchaseOrderController.cancel);
 router.delete('/purchase-orders/:id', authenticate, authorize('ADMIN', 'MANAGER'), purchaseOrderController.delete);
 
-// ─── Returns (Trả hàng) ───
+// ─── Purchase Returns (Trả hàng nhập) ───
+router.get('/purchase-returns', authenticate, purchaseReturnController.getAll);
+router.get('/purchase-returns/:id', authenticate, purchaseReturnController.getById);
+router.post('/purchase-returns', authenticate, authorize('ADMIN', 'MANAGER'), purchaseReturnController.create);
+
+// ─── Returns (Trả hàng bán) ───
 router.get('/returns', authenticate, returnController.getAll);
 router.get('/returns/:id', authenticate, returnController.getById);
 router.post('/returns', authenticate, authorize('ADMIN', 'MANAGER'), returnController.create);

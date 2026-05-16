@@ -86,6 +86,7 @@ model Product {
   orderItems       OrderItem[]
   returnItems      ReturnItem[]
   purchaseItems    PurchaseOrderItem[]
+  purchaseReturnItems PurchaseReturnItem[]
   inventoryChecks  InventoryCheck[]
 
   @@index([sku])
@@ -140,6 +141,7 @@ model Supplier {
   updatedAt   DateTime @updatedAt
 
   purchaseOrders PurchaseOrder[]
+  purchaseReturns PurchaseReturn[]
   products       Product[]
 
   @@index([code])
@@ -256,6 +258,7 @@ model PurchaseOrder {
   updatedAt  DateTime            @updatedAt
 
   items PurchaseOrderItem[]
+  purchaseReturns PurchaseReturn[]
 
   @@index([code])
   @@index([supplierId])
@@ -279,6 +282,53 @@ model PurchaseOrderItem {
   total           Decimal       @db.Decimal(15, 2)
 
   @@index([purchaseOrderId])
+  @@index([productId])
+}
+
+// ─── Trả hàng nhập (Purchase Returns) ───
+model PurchaseReturn {
+  id              Int                  @id @default(autoincrement())
+  code            String               @unique // THN000001
+  purchaseOrderId Int
+  purchaseOrder   PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
+  supplierId      Int
+  supplier        Supplier             @relation(fields: [supplierId], references: [id])
+  status          PurchaseReturnStatus @default(COMPLETED)
+  total           Decimal              @default(0) @db.Decimal(15, 2)
+  discount        Decimal              @default(0) @db.Decimal(15, 2) // Giảm giá
+  paid            Decimal              @default(0) @db.Decimal(15, 2) // Tiền NCC trả
+  note            String?
+  createdBy       String?              // Người tạo
+  receivedBy      String?              // Người trả
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  items PurchaseReturnItem[]
+
+  @@index([code])
+  @@index([purchaseOrderId])
+  @@index([supplierId])
+  @@index([createdAt])
+}
+
+enum PurchaseReturnStatus {
+  PENDING   // Phiếu tạm
+  COMPLETED // Đã trả hàng
+  CANCELLED // Đã hủy
+}
+
+model PurchaseReturnItem {
+  id               Int            @id @default(autoincrement())
+  purchaseReturnId Int
+  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  productId        Int
+  product          Product        @relation(fields: [productId], references: [id])
+  quantity         Float          // Số lượng trả
+  price            Decimal        @db.Decimal(15, 2) // Giá nhập
+  returnPrice      Decimal        @db.Decimal(15, 2) // Giá trả lại
+  total            Decimal        @db.Decimal(15, 2) // Thành tiền
+
+  @@index([purchaseReturnId])
   @@index([productId])
 }
 
