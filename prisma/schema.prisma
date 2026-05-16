@@ -324,9 +324,11 @@ model PurchaseReturnItem {
   productId        Int
   product          Product        @relation(fields: [productId], references: [id])
   quantity         Float          // Số lượng trả
+  unit             String         @default("Cái") // Đơn vị tính
   price            Decimal        @db.Decimal(15, 2) // Giá nhập
   returnPrice      Decimal        @db.Decimal(15, 2) // Giá trả lại
   total            Decimal        @db.Decimal(15, 2) // Thành tiền
+  note             String?        // Ghi chú dòng sản phẩm
 
   @@index([purchaseReturnId])
   @@index([productId])

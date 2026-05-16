@@ -6,8 +6,10 @@ import { AuthRequest } from '../middlewares/auth';
 const purchaseReturnItemSchema = z.object({
   productId: z.number().int(),
   quantity: z.number().min(0.01),
+  unit: z.string().default('Cái'),
   price: z.number().min(0),
   returnPrice: z.number().min(0),
+  note: z.string().optional().nullable(),
 });
 
 const createPurchaseReturnSchema = z.object({
@@ -107,9 +109,11 @@ export const purchaseReturnController = {
           return {
             productId: item.productId,
             quantity: item.quantity,
+            unit: item.unit,
             price: item.price,
             returnPrice: item.returnPrice,
             total: itemTotal,
+            note: item.note || null,
           };
         });
 
