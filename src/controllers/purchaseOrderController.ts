@@ -46,7 +46,8 @@ export const purchaseOrderController = {
         prisma.purchaseOrder.findMany({
           where,
           include: {
-            supplier: { select: { id: true, name: true, phone: true } },
+            supplier: true,
+            items: { include: { product: { select: { id: true, sku: true, name: true } } } },
             _count: { select: { items: true } },
           },
           skip: (page - 1) * limit,
@@ -143,6 +144,69 @@ export const purchaseOrderController = {
     }
   },
 
+  // PUT /api/purchase-orders/:id
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = Number(req.params.id);
+      const { note, received_by, supplierId, items, paid, status } = req.body;
+
+      let finalNote = note !== undefined ? note : undefined;
+      if (received_by) {
+        finalNote = (finalNote || '') + ` [Người nhập: ${received_by}]`;
+      }
+
+      const updateData: any = {};
+      if (finalNote !== undefined) updateData.note = finalNote;
+      if (supplierId !== undefined) updateData.supplierId = Number(supplierId);
+      if (paid !== undefined) updateData.paid = Number(paid);
+      if (status !== undefined) updateData.status = status;
+
+      const po = await prisma.$transaction(async (tx) => {
+        if (items && Array.isArray(items)) {
+          await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } });
+          
+          let total = 0;
+          const itemsData = items.map((item: any) => {
+            const itemTotal = Number(item.quantity) * Number(item.price);
+            total += itemTotal;
+            return {
+              productId: item.productId,
+              quantity: Number(item.quantity),
+              price: Number(item.price),
+              total: itemTotal,
+            };
+          });
+
+          updateData.total = total;
+          await tx.purchaseOrder.update({
+            where: { id },
+            data: {
+              ...updateData,
+              items: { create: itemsData }
+            }
+          });
+        } else {
+          await tx.purchaseOrder.update({
+            where: { id },
+            data: updateData
+          });
+        }
+
+        return await tx.purchaseOrder.findUnique({
+          where: { id },
+          include: {
+            items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+            supplier: true
+          }
+        });
+      });
+
+      res.json(po);
+    } catch (error) {
+      next(error);
+    }
+  },
+
   // PUT /api/purchase-orders/:id/cancel
   cancel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -181,6 +245,44 @@ export const purchaseOrderController = {
       });
 
       res.json({ message: 'Đã hủy phiếu nhập' });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // DELETE /api/purchase-orders/:id
+  delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = Number(req.params.id);
+      const po = await prisma.purchaseOrder.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+
+      if (!po) return res.status(404).json({ message: 'Không tìm thấy phiếu nhập' });
+
+      await prisma.$transaction(async (tx) => {
+        if (po.status === 'COMPLETED') {
+          for (const item of po.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { decrement: item.quantity } },
+            });
+          }
+
+          const debt = Number(po.total) - Number(po.paid);
+          if (debt > 0) {
+            await tx.supplier.update({
+              where: { id: po.supplierId },
+              data: { totalDebt: { decrement: debt } },
+            });
+          }
+        }
+
+        await tx.purchaseOrder.delete({ where: { id } });
+      });
+
+      res.json({ message: 'Đã xóa phiếu nhập thành công' });
     } catch (error) {
       next(error);
     }

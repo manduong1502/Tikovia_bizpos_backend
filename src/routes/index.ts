@@ -65,7 +65,9 @@ router.patch('/users/:id/toggle', authenticate, authorize('ADMIN'), userControll
 router.get('/purchase-orders', authenticate, purchaseOrderController.getAll);
 router.get('/purchase-orders/:id', authenticate, purchaseOrderController.getById);
 router.post('/purchase-orders', authenticate, authorize('ADMIN', 'MANAGER'), purchaseOrderController.create);
+router.put('/purchase-orders/:id', authenticate, authorize('ADMIN', 'MANAGER'), purchaseOrderController.update);
 router.put('/purchase-orders/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), purchaseOrderController.cancel);
+router.delete('/purchase-orders/:id', authenticate, authorize('ADMIN', 'MANAGER'), purchaseOrderController.delete);
 
 // ─── Returns (Trả hàng) ───
 router.get('/returns', authenticate, returnController.getAll);

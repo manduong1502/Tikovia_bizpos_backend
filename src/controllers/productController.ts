@@ -125,7 +125,11 @@ export const productController = {
   // PUT /api/products/:id
   update: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const data = productSchema.parse(req.body);
+      const bodyData = { ...req.body };
+      if (bodyData.sell_price !== undefined) bodyData.sellPrice = Number(bodyData.sell_price);
+      if (bodyData.cost_price !== undefined) bodyData.costPrice = Number(bodyData.cost_price);
+
+      const data = productSchema.partial().parse(bodyData);
       
       if (data.sku === '') {
         delete data.sku; // Do not overwrite with empty string
