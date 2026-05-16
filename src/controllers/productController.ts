@@ -162,4 +162,94 @@ export const productController = {
       next(error);
     }
   },
+
+  // POST /api/products/import
+  importExcel: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const items = req.body.items;
+      let importedCount = 0;
+
+      await prisma.$transaction(async (tx) => {
+        for (const item of items) {
+          const sku = item.sku && item.sku.trim() !== '' ? item.sku.trim() : `SP${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+          
+          // 1. Resolve Category
+          let categoryId = item.categoryId || null;
+          if (!categoryId && item.category_name) {
+            const catName = item.category_name.trim();
+            let cat = await tx.category.findFirst({ where: { name: catName } });
+            if (!cat) {
+              cat = await tx.category.create({ data: { name: catName } });
+            }
+            categoryId = cat.id;
+          }
+
+          // 2. Resolve Brand
+          let brandId = item.brandId || null;
+          if (!brandId && item.brand_name) {
+            const brandName = item.brand_name.trim();
+            let br = await tx.brand.findFirst({ where: { name: brandName } });
+            if (!br) {
+              br = await tx.brand.create({ data: { name: brandName } });
+            }
+            brandId = br.id;
+          }
+
+          // 3. Resolve Supplier
+          let supplierId = item.supplierId || null;
+          if (!supplierId && item.supplier_name) {
+            const supName = item.supplier_name.trim();
+            let sup = await tx.supplier.findFirst({ where: { name: supName } });
+            if (!sup) {
+              sup = await tx.supplier.create({ data: { code: `NCC${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`, name: supName } });
+            }
+            supplierId = sup.id;
+          }
+
+          const productData = {
+            name: item.name,
+            barcode: item.barcode || null,
+            categoryId,
+            brandId,
+            supplierId,
+            costPrice: item.costPrice !== undefined ? Number(item.costPrice) : 0,
+            sellPrice: item.sellPrice !== undefined ? Number(item.sellPrice) : 0,
+            stock: item.stock !== undefined ? Number(item.stock) : 0,
+            minStock: item.minStock !== undefined ? Number(item.minStock) : 0,
+            maxStock: item.maxStock !== undefined ? Number(item.maxStock) : 999999999,
+            unit: item.unit || 'Cái',
+            weight: item.weight !== undefined ? Number(item.weight) : null,
+            weightUnit: item.weightUnit || 'g',
+            location: item.location || null,
+            description: item.description || null,
+            note: item.note || null,
+            image: item.image || null,
+            isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
+            directSale: item.directSale !== undefined ? Boolean(item.directSale) : true,
+            createdAt: item.createdAt ? new Date(item.createdAt) : new Date(),
+          };
+
+          const ex = await tx.product.findUnique({ where: { sku } });
+          if (ex) {
+            await tx.product.update({
+              where: { sku },
+              data: productData,
+            });
+          } else {
+            await tx.product.create({
+              data: {
+                sku,
+                ...productData,
+              },
+            });
+          }
+          importedCount++;
+        }
+      });
+
+      res.status(201).json({ message: `Đã import thành công ${importedCount} hàng hóa`, count: importedCount });
+    } catch (error) {
+      next(error);
+    }
+  },
 };

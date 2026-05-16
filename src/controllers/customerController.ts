@@ -88,4 +88,53 @@ export const customerController = {
       next(error);
     }
   },
+
+  importExcel: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const items = req.body.items;
+      let importedCount = 0;
+
+      await prisma.$transaction(async (tx) => {
+        for (const item of items) {
+          const code = item.code && item.code.trim() !== '' ? item.code.trim() : `KH${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+          
+          const customerData = {
+            name: item.name,
+            phone: item.phone || null,
+            email: item.email || null,
+            address: item.address || null,
+            note: item.note || null,
+            customerType: item.customerType || null,
+            branch: item.branch || null,
+            totalSpent: item.totalSpent !== undefined ? Number(item.totalSpent) : 0,
+            totalDebt: item.totalDebt !== undefined ? Number(item.totalDebt) : 0,
+            isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
+            createdBy: item.createdBy || null,
+            lastTransaction: item.lastTransaction ? new Date(item.lastTransaction) : null,
+            createdAt: item.createdAt ? new Date(item.createdAt) : new Date(),
+          };
+
+          const ex = await tx.customer.findUnique({ where: { code } });
+          if (ex) {
+            await tx.customer.update({
+              where: { code },
+              data: customerData,
+            });
+          } else {
+            await tx.customer.create({
+              data: {
+                code,
+                ...customerData,
+              },
+            });
+          }
+          importedCount++;
+        }
+      });
+
+      res.status(201).json({ message: `Đã import thành công ${importedCount} khách hàng`, count: importedCount });
+    } catch (error) {
+      next(error);
+    }
+  },
 };

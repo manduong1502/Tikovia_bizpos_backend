@@ -37,6 +37,7 @@ router.post('/brands', authenticate, brandController.create);
 // ─── Customers ───
 router.get('/customers', authenticate, customerController.getAll);
 router.get('/customers/:id', authenticate, customerController.getById);
+router.post('/customers/import', authenticate, customerController.importExcel);
 router.post('/customers', authenticate, customerController.create);
 router.put('/customers/:id', authenticate, customerController.update);
 router.delete('/customers/:id', authenticate, authorize('ADMIN', 'MANAGER'), customerController.delete);
@@ -44,11 +45,13 @@ router.delete('/customers/:id', authenticate, authorize('ADMIN', 'MANAGER'), cus
 // ─── Orders ───
 router.get('/orders', authenticate, orderController.getAll);
 router.get('/orders/:id', authenticate, orderController.getById);
+router.post('/orders/import', authenticate, orderController.importExcel);
 router.post('/orders', authenticate, orderController.create);
 router.put('/orders/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), orderController.cancel);
 
 // ─── Suppliers ───
 router.get('/suppliers', authenticate, supplierController.getAll);
+router.post('/suppliers/import', authenticate, supplierController.importExcel);
 router.post('/suppliers', authenticate, supplierController.create);
 router.put('/suppliers/:id', authenticate, supplierController.update);
 router.delete('/suppliers/:id', authenticate, authorize('ADMIN'), supplierController.delete);
