@@ -390,4 +390,50 @@ export const orderController = {
       next(error);
     }
   },
+
+  delete: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const id = Number(req.params.id);
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+
+      if (!order) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+
+      await prisma.$transaction(async (tx) => {
+        // If order was not cancelled, we should restore stock
+        if (order.status !== 'CANCELLED') {
+          for (const item of order.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            });
+          }
+          
+          // Revert customer metrics
+          if (order.customerId) {
+            const debtChange = Number(order.total) - Number(order.paid);
+            await tx.customer.update({
+              where: { id: order.customerId },
+              data: {
+                totalSpent: { decrement: Number(order.total) },
+                totalOrders: { decrement: 1 },
+                totalDebt: { decrement: debtChange },
+              },
+            });
+          }
+        }
+
+        // Delete order items
+        await tx.orderItem.deleteMany({ where: { orderId: id } });
+        // Delete order
+        await tx.order.delete({ where: { id } });
+      });
+
+      res.json({ message: 'Đã xóa đơn hàng thành công' });
+    } catch (error) {
+      next(error);
+    }
+  },
 };

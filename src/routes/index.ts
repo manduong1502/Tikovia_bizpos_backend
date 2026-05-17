@@ -48,6 +48,7 @@ router.get('/orders/:id', authenticate, orderController.getById);
 router.post('/orders/import', authenticate, orderController.importExcel);
 router.post('/orders', authenticate, orderController.create);
 router.put('/orders/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), orderController.cancel);
+router.delete('/orders/:id', authenticate, orderController.delete);
 
 // ─── Suppliers ───
 router.get('/suppliers', authenticate, supplierController.getAll);
