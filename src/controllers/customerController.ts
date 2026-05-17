@@ -4,12 +4,28 @@ import prisma from '../config/database';
 import { config } from '../config';
 
 const customerSchema = z.object({
-  code: z.string().min(1, 'Mã KH không được trống'),
+  code: z.preprocess((val) => val === null || val === '' ? undefined : val, z.string().optional()),
   name: z.string().min(1, 'Tên KH không được trống'),
   phone: z.string().optional().nullable(),
-  email: z.string().email('Email không hợp lệ').optional().nullable(),
+  email: z.preprocess((val) => {
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      return trimmed === '' ? null : trimmed;
+    }
+    return val;
+  }, z.string().email('Email không hợp lệ').optional().nullable()),
   address: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
+  customerType: z.string().optional().nullable(),
+  branch: z.string().optional().nullable(),
+  totalSpent: z.preprocess((val) => val === undefined || val === '' || val === null ? 0 : Number(val), z.number().optional()),
+  totalDebt: z.preprocess((val) => val === undefined || val === '' || val === null ? 0 : Number(val), z.number().optional()),
+  isActive: z.preprocess((val) => {
+    if (typeof val === 'string') return val === 'true';
+    if (typeof val === 'boolean') return val;
+    return true;
+  }, z.boolean().optional()),
+  createdBy: z.string().optional().nullable(),
 });
 
 function parseExcelDate(val: any): Date | null {
@@ -45,14 +61,48 @@ export const customerController = {
       const page = Math.max(1, parseInt(req.query.page as string) || config.pagination.defaultPage);
       const limit = Math.min(config.pagination.maxLimit, parseInt(req.query.limit as string) || config.pagination.defaultLimit);
       const search = (req.query.search as string) || '';
+      const email = (req.query.email as string) || '';
+      const address = (req.query.address as string) || '';
+      const note = (req.query.note as string) || '';
+      const orderCode = (req.query.orderCode as string) || '';
 
       const where: any = {};
+      const andConditions: any[] = [];
+
       if (search) {
-        where.OR = [
-          { name: { contains: search, mode: 'insensitive' } },
-          { code: { contains: search, mode: 'insensitive' } },
-          { phone: { contains: search, mode: 'insensitive' } },
-        ];
+        andConditions.push({
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { code: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search, mode: 'insensitive' } },
+          ]
+        });
+      }
+
+      if (email) {
+        andConditions.push({ email: { contains: email, mode: 'insensitive' } });
+      }
+
+      if (address) {
+        andConditions.push({ address: { contains: address, mode: 'insensitive' } });
+      }
+
+      if (note) {
+        andConditions.push({ note: { contains: note, mode: 'insensitive' } });
+      }
+
+      if (orderCode) {
+        andConditions.push({
+          orders: {
+            some: {
+              code: { contains: orderCode, mode: 'insensitive' }
+            }
+          }
+        });
+      }
+
+      if (andConditions.length > 0) {
+        where.AND = andConditions;
       }
 
       const [data, total] = await Promise.all([
@@ -60,6 +110,13 @@ export const customerController = {
           where,
           skip: (page - 1) * limit,
           take: limit,
+          include: {
+            orders: {
+              select: {
+                code: true
+              }
+            }
+          },
           orderBy: { createdAt: 'desc' },
         }),
         prisma.customer.count({ where }),
@@ -86,8 +143,14 @@ export const customerController = {
 
   create: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const data = customerSchema.parse(req.body);
-      const customer = await prisma.customer.create({ data });
+      const parsed = customerSchema.parse(req.body);
+      const code = parsed.code && parsed.code.trim() !== '' ? parsed.code.trim() : `KH${Math.floor(100000 + Math.random() * 900000)}`;
+      const customer = await prisma.customer.create({
+        data: {
+          ...parsed,
+          code,
+        }
+      });
       res.status(201).json(customer);
     } catch (error) {
       next(error);
