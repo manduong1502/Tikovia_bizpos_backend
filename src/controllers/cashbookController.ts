@@ -111,7 +111,7 @@ export const cashbookController = {
           isAccounting: isAccounting !== false,
           status: 'completed',
           branch: branch || 'Chi nhánh trung tâm',
-          createdBy: createdBy || req.user?.fullName || 'Võ Thành Huy',
+          createdBy: createdBy || req.user?.username || 'Võ Thành Huy',
           note: note || '',
           userId: req.user!.id,
         },
