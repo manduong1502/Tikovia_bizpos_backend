@@ -364,14 +364,26 @@ model InventoryCheck {
 
 // ─── Sổ quỹ ───
 model CashbookEntry {
-  id          Int            @id @default(autoincrement())
-  code        String         @unique
-  type        CashbookType
-  amount      Decimal        @db.Decimal(15, 2)
-  description String
-  userId      Int
-  user        User           @relation(fields: [userId], references: [id])
-  createdAt   DateTime       @default(now())
+  id             Int            @id @default(autoincrement())
+  code           String         @unique
+  type           CashbookType
+  amount         Decimal        @db.Decimal(15, 2)
+  description    String?
+  userId         Int
+  user           User           @relation(fields: [userId], references: [id])
+  category       String         @default("Thu nhập khác") // Loại thu/chi (VD: Thu nhập khác, Chi phí khác, Chuyển/Rút)
+  partnerType    String         @default("other") // customer, supplier, staff, delivery, other
+  partnerName    String
+  partnerPhone   String?
+  partnerAddress String?
+  paymentMethod  String         @default("cash") // cash, bank, wallet
+  isAccounting   Boolean        @default(true) // Hạch toán kết quả kinh doanh
+  status         String         @default("completed") // completed (Đã thanh toán), cancelled (Đã hủy)
+  branch         String?        @default("Chi nhánh trung tâm")
+  createdBy      String?        @default("Võ Thành Huy")
+  note           String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   @@index([type])
   @@index([createdAt])
@@ -381,4 +393,16 @@ model CashbookEntry {
 enum CashbookType {
   INCOME
   EXPENSE
+}
+
+model CashbookPartner {
+  id        Int      @id @default(autoincrement())
+  name      String   // Tên người nhận/nộp
+  phone     String?  // Điện thoại
+  address   String?  // Địa chỉ
+  province  String?  // Tỉnh/Thành phố
+  ward      String?  // Phường/Xã
+  note      String?  // Ghi chú
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

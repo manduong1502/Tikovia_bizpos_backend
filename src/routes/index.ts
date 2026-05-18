@@ -96,5 +96,8 @@ router.get('/reports/products', authenticate, reportController.products);
 // ─── Cashbook ───
 router.get('/cashbook', authenticate, cashbookController.getAll);
 router.post('/cashbook', authenticate, authorize('ADMIN', 'MANAGER'), cashbookController.create);
+router.put('/cashbook/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), cashbookController.cancel);
+router.get('/cashbook/partners', authenticate, cashbookController.getPartners);
+router.post('/cashbook/partners', authenticate, cashbookController.createPartner);
 
 export default router;
