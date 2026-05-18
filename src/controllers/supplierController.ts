@@ -32,7 +32,7 @@ export const supplierController = {
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const suppliers = await prisma.supplier.findMany({
-        orderBy: { name: 'asc' },
+        orderBy: { createdAt: 'desc' },
         include: {
           purchaseOrders: {
             where: { status: 'COMPLETED' }
