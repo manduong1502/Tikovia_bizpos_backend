@@ -134,41 +134,181 @@ export const reportController = {
     }
   },
 
-  // GET /api/reports/products (Top selling)
+  // GET /api/reports/products (Products sales report)
   products: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const limit = parseInt(req.query.limit as string) || 10;
-      
-      const topItems = await prisma.orderItem.groupBy({
-        by: ['productId'],
-        _sum: {
-          quantity: true,
-          total: true
+      let startDate = new Date();
+      let endDate = new Date();
+
+      if (req.query.date) {
+        const dateStr = req.query.date as string;
+        let parsedDate: Date;
+        if (dateStr.includes('/')) {
+          const [d, m, y] = dateStr.split('/');
+          parsedDate = new Date(Number(y), Number(m) - 1, Number(d));
+        } else {
+          parsedDate = new Date(dateStr);
+        }
+        startDate = new Date(parsedDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(parsedDate);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (req.query.fromDate && req.query.toDate) {
+        startDate = new Date(req.query.fromDate as string);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(req.query.toDate as string);
+        endDate.setHours(23, 59, 59, 999);
+      } else {
+        // default to today
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+      }
+
+      // Fetch all COMPLETED orders in period with items & product details
+      const orders = await prisma.order.findMany({
+        where: { 
+          createdAt: { gte: startDate, lte: endDate },
+          status: 'COMPLETED'
         },
-        orderBy: {
-          _sum: {
-            quantity: 'desc'
+        include: {
+          items: {
+            include: { product: { select: { id: true, name: true, sku: true, unit: true, categoryId: true, type: true } } }
           }
+        }
+      });
+
+      // Fetch all COMPLETED returns in period with items
+      const returns = await prisma.return.findMany({
+        where: { 
+          createdAt: { gte: startDate, lte: endDate },
+          status: 'COMPLETED' 
         },
-        take: limit
+        include: {
+          items: true
+        }
       });
 
-      // Fetch product details
-      const productIds = topItems.map(item => item.productId);
-      const products = await prisma.product.findMany({
-        where: { id: { in: productIds } },
-        select: { id: true, name: true, sku: true, image: true, stock: true }
+      // Aggregate
+      const productMap: Record<number, any> = {};
+
+      orders.forEach(order => {
+        order.items.forEach(item => {
+          if (!productMap[item.productId]) {
+            productMap[item.productId] = {
+              id: item.productId,
+              sku: item.product.sku,
+              name: item.product.name,
+              unit: item.product.unit,
+              categoryId: item.product.categoryId,
+              type: item.product.type,
+              soldQty: 0,
+              revenue: 0,
+              returnQty: 0,
+              returnVal: 0,
+              netRevenue: 0
+            };
+          }
+          productMap[item.productId].soldQty += Number(item.quantity);
+          productMap[item.productId].revenue += Number(item.total);
+          productMap[item.productId].netRevenue += Number(item.total);
+        });
       });
 
-      const result = topItems.map(item => {
-        const product = products.find(p => p.id === item.productId);
-        return {
-          ...product,
-          soldQuantity: item._sum.quantity,
-          revenue: item._sum.total
-        };
+      returns.forEach(ret => {
+        ret.items.forEach(item => {
+          if (productMap[item.productId]) {
+            productMap[item.productId].returnQty += Number(item.quantity);
+            productMap[item.productId].returnVal += Number(item.total);
+            productMap[item.productId].netRevenue -= Number(item.total);
+          }
+        });
       });
 
+      const result = Object.values(productMap);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // 4. Báo cáo khách hàng
+  getCustomers: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { fromDate, toDate } = req.query;
+      let startDate = new Date(0);
+      let endDate = new Date();
+
+      if (fromDate) startDate = new Date(fromDate as string);
+      if (toDate) {
+        endDate = new Date(toDate as string);
+        endDate.setHours(23, 59, 59, 999);
+      }
+
+      // Fetch all COMPLETED orders in period that have a customer attached
+      const orders = await prisma.order.findMany({
+        where: {
+          createdAt: { gte: startDate, lte: endDate },
+          status: 'COMPLETED',
+          customerId: { not: null }
+        },
+        include: {
+          customer: { select: { id: true, name: true, phone: true, code: true } }
+        }
+      });
+
+      // Fetch all COMPLETED returns in period that have a customer attached
+      const returns = await prisma.return.findMany({
+        where: { 
+          createdAt: { gte: startDate, lte: endDate },
+          status: 'COMPLETED',
+          customerId: { not: null }
+        },
+        include: {
+          customer: { select: { id: true, name: true, phone: true, code: true } }
+        }
+      });
+
+      // Aggregate
+      const customerMap: Record<number, any> = {};
+
+      orders.forEach(order => {
+        const cus = order.customer;
+        if (!cus) return;
+        if (!customerMap[cus.id]) {
+          customerMap[cus.id] = {
+            id: cus.id,
+            code: cus.code,
+            name: cus.name,
+            phone: cus.phone,
+            revenue: 0,
+            returnVal: 0,
+            netRevenue: 0
+          };
+        }
+        customerMap[cus.id].revenue += Number(order.total);
+        customerMap[cus.id].netRevenue += Number(order.total);
+      });
+
+      returns.forEach(ret => {
+        const cus = ret.customer;
+        if (!cus) return;
+        if (!customerMap[cus.id]) {
+          // It's possible a customer only has returns in this period
+          customerMap[cus.id] = {
+            id: cus.id,
+            code: cus.code,
+            name: cus.name,
+            phone: cus.phone,
+            revenue: 0,
+            returnVal: 0,
+            netRevenue: 0
+          };
+        }
+        customerMap[cus.id].returnVal += Number(ret.total);
+        customerMap[cus.id].netRevenue -= Number(ret.total);
+      });
+
+      const result = Object.values(customerMap);
       res.json(result);
     } catch (error) {
       next(error);

@@ -92,6 +92,7 @@ router.post('/inventory-checks', authenticate, authorize('ADMIN', 'MANAGER'), in
 router.get('/reports/end-of-day', authenticate, reportController.endOfDay);
 router.get('/reports/sales', authenticate, reportController.sales);
 router.get('/reports/products', authenticate, reportController.products);
+router.get('/reports/customers', authenticate, reportController.getCustomers);
 
 // ─── Cashbook ───
 router.get('/cashbook', authenticate, cashbookController.getAll);
