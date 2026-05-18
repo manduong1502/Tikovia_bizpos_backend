@@ -158,7 +158,7 @@ export const orderController = {
             subtotal,
             discount: body.discount,
             total,
-            paid: body.paid || total,
+            paid: body.paid ?? total,
             paymentMethod: body.paymentMethod,
             note: body.note,
             status: 'COMPLETED',
@@ -274,6 +274,116 @@ export const orderController = {
       });
 
       res.json({ message: 'Đã hủy đơn hàng' });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // PUT /api/orders/:id
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = Number(req.params.id);
+      const body = createOrderSchema.parse(req.body);
+      
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+      if (!order) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+
+      const updatedOrder = await prisma.$transaction(async (tx) => {
+        // 1. Revert old order effects
+        for (const item of order.items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+        if (order.customerId) {
+          const oldDebtChange = Number(order.total) - Number(order.paid);
+          await tx.customer.update({
+            where: { id: order.customerId },
+            data: {
+              totalSpent: { decrement: order.total },
+              totalOrders: { decrement: 1 },
+              totalDebt: { decrement: oldDebtChange },
+            },
+          });
+        }
+
+        // 2. Clear old items
+        await tx.orderItem.deleteMany({ where: { orderId: id } });
+
+        // 3. Calculate new totals
+        let subtotal = 0;
+        const itemsData = body.items.map((item) => {
+          const itemTotal = item.quantity * item.price - item.discount;
+          subtotal += itemTotal;
+          return {
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+            discount: item.discount,
+            total: itemTotal,
+          };
+        });
+        const total = subtotal - body.discount;
+        const paid = body.paid ?? total;
+
+        // 4. Update order
+        const newOrder = await tx.order.update({
+          where: { id },
+          data: {
+            customerId: body.customerId,
+            userId: req.user!.id,
+            subtotal,
+            discount: body.discount,
+            total,
+            paid,
+            paymentMethod: body.paymentMethod,
+            note: body.note,
+            items: { create: itemsData },
+          },
+          include: {
+            items: { include: { product: { select: { id: true, name: true } } } },
+            customer: { select: { id: true, name: true } },
+          },
+        });
+
+        // 5. Apply new order effects
+        for (const item of body.items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { decrement: item.quantity } },
+          });
+        }
+        if (body.customerId) {
+          const newDebtChange = total - paid;
+          await tx.customer.update({
+            where: { id: body.customerId },
+            data: {
+              totalSpent: { increment: total },
+              totalOrders: { increment: 1 },
+              totalDebt: { increment: newDebtChange },
+            },
+          });
+        }
+        
+        // 6. Update Cashbook entry if it exists
+        if (paid > 0) {
+          const existingEntry = await tx.cashbookEntry.findFirst({ where: { orderId: id } });
+          if (existingEntry) {
+            await tx.cashbookEntry.update({
+              where: { id: existingEntry.id },
+              data: { amount: paid, customerId: body.customerId || null }
+            });
+          }
+        }
+
+        return newOrder;
+      });
+
+      res.json(updatedOrder);
     } catch (error) {
       next(error);
     }

@@ -113,8 +113,14 @@ export const customerController = {
           include: {
             orders: {
               select: {
-                code: true
-              }
+                code: true,
+                createdAt: true,
+                total: true,
+                paid: true,
+                discount: true,
+                status: true
+              },
+              orderBy: { createdAt: 'desc' }
             }
           },
           orderBy: { createdAt: 'desc' },
