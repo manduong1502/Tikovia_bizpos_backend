@@ -5,20 +5,54 @@ export const reportController = {
   // GET /api/reports/end-of-day
   endOfDay: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      let startDate = new Date();
+      let endDate = new Date();
+
+      if (req.query.date) {
+        const dateStr = req.query.date as string;
+        let parsedDate: Date;
+        if (dateStr.includes('/')) {
+          const [d, m, y] = dateStr.split('/');
+          parsedDate = new Date(Number(y), Number(m) - 1, Number(d));
+        } else {
+          parsedDate = new Date(dateStr);
+        }
+        startDate = new Date(parsedDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(parsedDate);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (req.query.fromDate && req.query.toDate) {
+        startDate = new Date(req.query.fromDate as string);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(req.query.toDate as string);
+        endDate.setHours(23, 59, 59, 999);
+      } else {
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+      }
 
       const [orders, returns, cashbook] = await Promise.all([
         prisma.order.findMany({
-          where: { createdAt: { gte: today }, status: 'COMPLETED' },
-          select: { total: true, paid: true }
+          where: { 
+            createdAt: { gte: startDate, lte: endDate },
+            status: 'COMPLETED'
+          },
+          include: {
+            items: true,
+            customer: true,
+            user: { select: { id: true, username: true } }
+          },
+          orderBy: { createdAt: 'desc' }
         }),
         prisma.return.findMany({
-          where: { createdAt: { gte: today }, status: 'COMPLETED' },
+          where: { 
+            createdAt: { gte: startDate, lte: endDate },
+            status: 'COMPLETED' 
+          },
           select: { total: true }
         }),
         prisma.cashbookEntry.findMany({
-          where: { createdAt: { gte: today } }
+          where: { createdAt: { gte: startDate, lte: endDate } }
         })
       ]);
 
@@ -29,15 +63,37 @@ export const reportController = {
       const income = cashbook.filter(c => c.type === 'INCOME').reduce((sum, c) => sum + Number(c.amount), 0);
       const expense = cashbook.filter(c => c.type === 'EXPENSE').reduce((sum, c) => sum + Number(c.amount), 0);
 
+      // Map orders to KiotViet style transaction report details
+      const transactionDetails = orders.map(o => {
+        const totalQty = o.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
+        return {
+          id: o.id,
+          code: o.code || `HD00000${o.id}`,
+          time: o.createdAt,
+          quantity: totalQty,
+          revenue: Number(o.total),
+          otherFee: 0,
+          vat: 0,
+          rounding: 0,
+          returnFee: 0,
+          netRevenue: Number(o.total),
+          customerName: o.customer?.name || 'Khách lẻ',
+          customerPhone: o.customer?.phone || '',
+          createdBy: o.user?.username || 'Võ Thành Huy',
+          paymentMethod: o.paymentMethod || 'Tiền mặt'
+        };
+      });
+
       res.json({
-        date: today,
+        dateRange: { from: startDate, to: endDate },
         orderCount: orders.length,
         totalSales,
         totalPaid,
         totalReturns,
         cashbookIncome: income,
         cashbookExpense: expense,
-        netRevenue: totalSales - totalReturns
+        netRevenue: totalSales - totalReturns,
+        transactions: transactionDetails
       });
     } catch (error) {
       next(error);
