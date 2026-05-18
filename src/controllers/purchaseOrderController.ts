@@ -17,11 +17,15 @@ const createPurchaseOrderSchema = z.object({
   status: z.enum(['PENDING', 'COMPLETED']).default('COMPLETED'),
 });
 
-// Auto-generate code: PN000001
-async function generatePOCode(): Promise<string> {
-  const lastPO = await prisma.purchaseOrder.findFirst({ orderBy: { id: 'desc' } });
-  const nextNum = (lastPO?.id || 0) + 1;
-  return `PN${String(nextNum).padStart(6, '0')}`;
+// Auto-generate code using SequenceTracker to avoid race conditions
+async function generatePOCode(txClient?: any): Promise<string> {
+  const db = txClient || prisma;
+  const seq = await db.sequenceTracker.upsert({
+    where: { name: 'PURCHASE_ORDER' },
+    update: { value: { increment: 1 } },
+    create: { name: 'PURCHASE_ORDER', value: 1 }
+  });
+  return `PN${String(seq.value).padStart(6, '0')}`;
 }
 
 export const purchaseOrderController = {
@@ -85,9 +89,8 @@ export const purchaseOrderController = {
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const body = createPurchaseOrderSchema.parse(req.body);
-      const code = await generatePOCode();
-
       const po = await prisma.$transaction(async (tx) => {
+        const code = await generatePOCode(tx);
         let total = 0;
         const itemsData = body.items.map(item => {
           const itemTotal = item.quantity * item.price;
@@ -285,36 +288,9 @@ export const purchaseOrderController = {
   // DELETE /api/purchase-orders/:id
   delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const id = Number(req.params.id);
-      const po = await prisma.purchaseOrder.findUnique({
-        where: { id },
-        include: { items: true },
+      return res.status(400).json({ 
+        message: 'Dữ liệu tài chính không được phép xóa vật lý. Vui lòng sử dụng tính năng Hủy phiếu.' 
       });
-
-      if (!po) return res.status(404).json({ message: 'Không tìm thấy phiếu nhập' });
-
-      await prisma.$transaction(async (tx) => {
-        if (po.status === 'COMPLETED') {
-          for (const item of po.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { decrement: item.quantity } },
-            });
-          }
-
-          const debt = Number(po.total) - Number(po.paid);
-          if (debt > 0) {
-            await tx.supplier.update({
-              where: { id: po.supplierId },
-              data: { totalDebt: { decrement: debt } },
-            });
-          }
-        }
-
-        await tx.purchaseOrder.delete({ where: { id } });
-      });
-
-      res.json({ message: 'Đã xóa phiếu nhập thành công' });
     } catch (error) {
       next(error);
     }

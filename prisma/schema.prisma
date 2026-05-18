@@ -446,3 +446,11 @@ model CashbookPartner {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// ─── Sequence Tracker (Tạo mã tăng tự động chống Race Condition) ───
+model SequenceTracker {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique // e.g. "ORDER", "PURCHASE_ORDER", "INVENTORY_CHECK", "CASHBOOK"
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}

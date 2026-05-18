@@ -19,11 +19,15 @@ const createOrderSchema = z.object({
   note: z.string().optional().nullable(),
 });
 
-// Auto-generate order code: HD000001, HD000002...
-async function generateOrderCode(): Promise<string> {
-  const lastOrder = await prisma.order.findFirst({ orderBy: { id: 'desc' } });
-  const nextNum = (lastOrder?.id || 0) + 1;
-  return `HD${String(nextNum).padStart(6, '0')}`;
+// Auto-generate order code using SequenceTracker to avoid race conditions
+async function generateOrderCode(txClient?: any): Promise<string> {
+  const db = txClient || prisma;
+  const seq = await db.sequenceTracker.upsert({
+    where: { name: 'ORDER' },
+    update: { value: { increment: 1 } },
+    create: { name: 'ORDER', value: 1 }
+  });
+  return `HD${String(seq.value).padStart(6, '0')}`;
 }
 
 function parseExcelDate(val: any): Date | null {
@@ -121,8 +125,6 @@ export const orderController = {
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const body = createOrderSchema.parse(req.body);
-      const code = await generateOrderCode();
-
       const order = await prisma.$transaction(async (tx) => {
         // Calculate totals
         let subtotal = 0;
@@ -147,6 +149,7 @@ export const orderController = {
         }
 
         // Create order
+        const code = await generateOrderCode(tx);
         const newOrder = await tx.order.create({
           data: {
             code,
@@ -433,45 +436,9 @@ export const orderController = {
 
   delete: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const id = Number(req.params.id);
-      const order = await prisma.order.findUnique({
-        where: { id },
-        include: { items: true },
+      return res.status(400).json({ 
+        message: 'Dữ liệu tài chính không được phép xóa vật lý. Vui lòng sử dụng tính năng Hủy đơn hàng.' 
       });
-
-      if (!order) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
-
-      await prisma.$transaction(async (tx) => {
-        // If order was not cancelled, we should restore stock
-        if (order.status !== 'CANCELLED') {
-          for (const item of order.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            });
-          }
-          
-          // Revert customer metrics
-          if (order.customerId) {
-            const debtChange = Number(order.total) - Number(order.paid);
-            await tx.customer.update({
-              where: { id: order.customerId },
-              data: {
-                totalSpent: { decrement: Number(order.total) },
-                totalOrders: { decrement: 1 },
-                totalDebt: { decrement: debtChange },
-              },
-            });
-          }
-        }
-
-        // Delete order items
-        await tx.orderItem.deleteMany({ where: { orderId: id } });
-        // Delete order
-        await tx.order.delete({ where: { id } });
-      });
-
-      res.json({ message: 'Đã xóa đơn hàng thành công' });
     } catch (error) {
       next(error);
     }

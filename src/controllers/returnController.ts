@@ -16,11 +16,15 @@ const createReturnSchema = z.object({
   reason: z.string().optional().nullable(),
 });
 
-// Auto-generate code: TH000001
-async function generateReturnCode(): Promise<string> {
-  const lastReturn = await prisma.return.findFirst({ orderBy: { id: 'desc' } });
-  const nextNum = (lastReturn?.id || 0) + 1;
-  return `TH${String(nextNum).padStart(6, '0')}`;
+// Auto-generate code using SequenceTracker to avoid race conditions
+async function generateReturnCode(txClient?: any): Promise<string> {
+  const db = txClient || prisma;
+  const seq = await db.sequenceTracker.upsert({
+    where: { name: 'RETURN' },
+    update: { value: { increment: 1 } },
+    create: { name: 'RETURN', value: 1 }
+  });
+  return `TH${String(seq.value).padStart(6, '0')}`;
 }
 
 export const returnController = {
@@ -83,9 +87,8 @@ export const returnController = {
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const body = createReturnSchema.parse(req.body);
-      const code = await generateReturnCode();
-
       const returnDoc = await prisma.$transaction(async (tx) => {
+        const code = await generateReturnCode(tx);
         let total = 0;
         const itemsData = body.items.map(item => {
           const itemTotal = item.quantity * item.price;

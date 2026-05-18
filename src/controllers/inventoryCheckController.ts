@@ -13,11 +13,15 @@ const createInventoryCheckSchema = z.object({
   items: z.array(checkItemSchema).min(1, 'Phải có ít nhất 1 sản phẩm để kiểm kho'),
 });
 
-// Auto-generate code: KK000001
-async function generateCheckCode(): Promise<string> {
-  const lastCheck = await prisma.inventoryCheck.findFirst({ orderBy: { id: 'desc' } });
-  const nextNum = (lastCheck?.id || 0) + 1;
-  return `KK${String(nextNum).padStart(6, '0')}`;
+// Auto-generate code using SequenceTracker to avoid race conditions
+async function generateCheckCode(txClient?: any): Promise<string> {
+  const db = txClient || prisma;
+  const seq = await db.sequenceTracker.upsert({
+    where: { name: 'INVENTORY_CHECK' },
+    update: { value: { increment: 1 } },
+    create: { name: 'INVENTORY_CHECK', value: 1 }
+  });
+  return `KK${String(seq.value).padStart(6, '0')}`;
 }
 
 export const inventoryCheckController = {
@@ -61,7 +65,7 @@ export const inventoryCheckController = {
       const body = createInventoryCheckSchema.parse(req.body);
       
       const results = await prisma.$transaction(async (tx) => {
-        const code = await generateCheckCode();
+        const code = await generateCheckCode(tx);
         
         const newCheck = await tx.inventoryCheck.create({
           data: {

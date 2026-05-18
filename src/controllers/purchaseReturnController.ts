@@ -24,10 +24,14 @@ const createPurchaseReturnSchema = z.object({
   createdBy: z.string().optional().nullable(),
 });
 
-async function generatePurchaseReturnCode(): Promise<string> {
-  const lastPR = await prisma.purchaseReturn.findFirst({ orderBy: { id: 'desc' } });
-  const nextNum = (lastPR?.id || 0) + 1;
-  return `THN${String(nextNum).padStart(6, '0')}`;
+async function generatePurchaseReturnCode(txClient?: any): Promise<string> {
+  const db = txClient || prisma;
+  const seq = await db.sequenceTracker.upsert({
+    where: { name: 'PURCHASE_RETURN' },
+    update: { value: { increment: 1 } },
+    create: { name: 'PURCHASE_RETURN', value: 1 }
+  });
+  return `THN${String(seq.value).padStart(6, '0')}`;
 }
 
 export const purchaseReturnController = {
@@ -99,9 +103,8 @@ export const purchaseReturnController = {
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const body = createPurchaseReturnSchema.parse(req.body);
-      const code = await generatePurchaseReturnCode();
-
       const pr = await prisma.$transaction(async (tx) => {
+        const code = await generatePurchaseReturnCode(tx);
         let total = 0;
         const itemsData = body.items.map(item => {
           const itemTotal = item.quantity * item.returnPrice;
