@@ -26,6 +26,7 @@ model User {
 
   orders         Order[]
   cashbookEntries CashbookEntry[]
+  inventoryChecks InventoryCheck[] @relation("UserInventoryChecks")
 
   @@index([username])
   @@index([email])
@@ -87,7 +88,7 @@ model Product {
   returnItems      ReturnItem[]
   purchaseItems    PurchaseOrderItem[]
   purchaseReturnItems PurchaseReturnItem[]
-  inventoryChecks  InventoryCheck[]
+  inventoryCheckItems InventoryCheckItem[]
 
   @@index([sku])
   @@index([barcode])
@@ -126,6 +127,7 @@ model Customer {
 
   orders  Order[]
   returns Return[]
+  cashbookEntries CashbookEntry[]
 
   @@index([code])
   @@index([phone])
@@ -151,6 +153,7 @@ model Supplier {
   purchaseOrders PurchaseOrder[]
   purchaseReturns PurchaseReturn[]
   products       Product[]
+  cashbookEntries CashbookEntry[]
 
   @@index([code])
   @@index([name])
@@ -179,6 +182,7 @@ model Order {
 
   items   OrderItem[]
   returns Return[]
+  cashbookEntries CashbookEntry[]
 
   @@index([code])
   @@index([customerId])
@@ -230,6 +234,7 @@ model Return {
   createdAt  DateTime     @default(now())
 
   items ReturnItem[]
+  cashbookEntries CashbookEntry[]
 
   @@index([code])
   @@index([orderId])
@@ -270,6 +275,7 @@ model PurchaseOrder {
 
   items PurchaseOrderItem[]
   purchaseReturns PurchaseReturn[]
+  cashbookEntries CashbookEntry[]
 
   @@index([code])
   @@index([supplierId])
@@ -349,17 +355,32 @@ model PurchaseReturnItem {
 model InventoryCheck {
   id            Int      @id @default(autoincrement())
   code          String   @unique
-  productId     Int
-  product       Product  @relation(fields: [productId], references: [id])
-  systemQty     Int                       // Tồn hệ thống
-  actualQty     Int                       // Tồn thực tế
-  difference    Int                       // Chênh lệch
+  userId        Int?
+  user          User?    @relation("UserInventoryChecks", fields: [userId], references: [id])
+  status        String   @default("COMPLETED") // PENDING, COMPLETED, CANCELLED
   note          String?
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items InventoryCheckItem[]
 
   @@index([code])
-  @@index([productId])
   @@index([createdAt])
+}
+
+model InventoryCheckItem {
+  id               Int            @id @default(autoincrement())
+  inventoryCheckId Int
+  inventoryCheck   InventoryCheck @relation(fields: [inventoryCheckId], references: [id], onDelete: Cascade)
+  productId        Int
+  product          Product        @relation(fields: [productId], references: [id])
+  systemQty        Int            // Tồn hệ thống
+  actualQty        Int            // Tồn thực tế
+  difference       Int            // Chênh lệch
+  note             String?
+
+  @@index([inventoryCheckId])
+  @@index([productId])
 }
 
 // ─── Sổ quỹ ───
@@ -372,7 +393,22 @@ model CashbookEntry {
   userId         Int
   user           User           @relation(fields: [userId], references: [id])
   category       String         @default("Thu nhập khác") // Loại thu/chi (VD: Thu nhập khác, Chi phí khác, Chuyển/Rút)
+  
+  // Relations for tracing origins
+  orderId        Int?
+  order          Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  purchaseOrderId Int?
+  purchaseOrder  PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  returnId       Int?
+  return         Return?        @relation(fields: [returnId], references: [id], onDelete: SetNull)
+
+  // Partner Relations
   partnerType    String         @default("other") // customer, supplier, staff, delivery, other
+  customerId     Int?
+  customer       Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplierId     Int?
+  supplier       Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  
   partnerName    String
   partnerPhone   String?
   partnerAddress String?
@@ -388,6 +424,10 @@ model CashbookEntry {
   @@index([type])
   @@index([createdAt])
   @@index([userId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([orderId])
+  @@index([purchaseOrderId])
 }
 
 enum CashbookType {

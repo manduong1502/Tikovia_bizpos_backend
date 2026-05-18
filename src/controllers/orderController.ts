@@ -139,6 +139,12 @@ export const orderController = {
         });
 
         const total = subtotal - body.discount;
+        let customerName = 'Khách lẻ';
+
+        if (body.customerId) {
+          const cust = await tx.customer.findUnique({ where: { id: body.customerId } });
+          if (cust) customerName = cust.name;
+        }
 
         // Create order
         const newOrder = await tx.order.create({
@@ -182,6 +188,31 @@ export const orderController = {
           });
         }
 
+        // Generate Cashbook Entry if paid > 0
+        if (body.paid > 0) {
+          const count = await tx.cashbookEntry.count({ where: { type: 'INCOME' } });
+          const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+          
+          await tx.cashbookEntry.create({
+            data: {
+              code: cashbookCode,
+              type: 'INCOME',
+              amount: body.paid,
+              category: 'Thu tiền khách trả', // Thu tiền bán hàng
+              partnerType: body.customerId ? 'customer' : 'other',
+              customerId: body.customerId || null,
+              partnerName: customerName,
+              paymentMethod: body.paymentMethod === 'CASH' ? 'cash' : 'bank',
+              isAccounting: true,
+              status: 'completed',
+              branch: body.branch || 'Chi nhánh trung tâm',
+              userId: req.user!.id,
+              orderId: newOrder.id,
+              note: `Thu tiền đơn hàng ${code}`,
+            }
+          });
+        }
+
         return newOrder;
       });
 
@@ -220,14 +251,23 @@ export const orderController = {
 
         // Revert customer stats
         if (order.customerId) {
+          // If there was a debt, we decrement it
+          const debtChange = Number(order.total) - Number(order.paid);
           await tx.customer.update({
             where: { id: order.customerId },
             data: {
               totalSpent: { decrement: order.total },
               totalOrders: { decrement: 1 },
+              totalDebt: { decrement: debtChange },
             },
           });
         }
+        
+        // Also cancel associated cashbook entries
+        await tx.cashbookEntry.updateMany({
+          where: { orderId: id, status: 'completed' },
+          data: { status: 'cancelled', note: 'Hủy theo đơn hàng bị hủy' }
+        });
       });
 
       res.json({ message: 'Đã hủy đơn hàng' });

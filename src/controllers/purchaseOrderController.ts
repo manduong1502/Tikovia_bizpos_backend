@@ -133,6 +133,32 @@ export const purchaseOrderController = {
               data: { totalDebt: { increment: debt } },
             });
           }
+          
+          // Generate Cashbook Entry (EXPENSE) if paid > 0
+          if (body.paid > 0) {
+            const supplier = await tx.supplier.findUnique({ where: { id: body.supplierId } });
+            const count = await tx.cashbookEntry.count({ where: { type: 'EXPENSE' } });
+            const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+            
+            await tx.cashbookEntry.create({
+              data: {
+                code: cashbookCode,
+                type: 'EXPENSE',
+                amount: body.paid,
+                category: 'Trả tiền nhà cung cấp', // Trả tiền nhập hàng
+                partnerType: 'supplier',
+                supplierId: body.supplierId,
+                partnerName: supplier ? supplier.name : 'Nhà cung cấp',
+                paymentMethod: 'cash', // Or dynamically fetched
+                isAccounting: true,
+                status: 'completed',
+                branch: 'Chi nhánh trung tâm',
+                userId: req.user!.id,
+                purchaseOrderId: newPO.id,
+                note: `Trả tiền nhập hàng ${code}`,
+              }
+            });
+          }
         }
 
         return newPO;
@@ -241,6 +267,12 @@ export const purchaseOrderController = {
               data: { totalDebt: { decrement: debt } },
             });
           }
+          
+          // Also cancel associated cashbook entries
+          await tx.cashbookEntry.updateMany({
+            where: { purchaseOrderId: id, status: 'completed' },
+            data: { status: 'cancelled', note: 'Hủy theo phiếu nhập hàng bị hủy' }
+          });
         }
       });
 

@@ -32,7 +32,6 @@ export const inventoryCheckController = {
       if (search) {
         where.OR = [
           { code: { contains: search, mode: 'insensitive' } },
-          { product: { name: { contains: search, mode: 'insensitive' } } },
         ];
       }
 
@@ -40,7 +39,8 @@ export const inventoryCheckController = {
         prisma.inventoryCheck.findMany({
           where,
           include: {
-            product: { select: { id: true, sku: true, name: true } },
+            user: { select: { id: true, fullName: true } },
+            items: { include: { product: { select: { id: true, sku: true, name: true } } } },
           },
           skip: (page - 1) * limit,
           take: limit,
@@ -61,7 +61,17 @@ export const inventoryCheckController = {
       const body = createInventoryCheckSchema.parse(req.body);
       
       const results = await prisma.$transaction(async (tx) => {
-        const createdChecks = [];
+        const code = await generateCheckCode();
+        
+        const newCheck = await tx.inventoryCheck.create({
+          data: {
+            code,
+            userId: req.user!.id,
+            status: 'COMPLETED',
+          }
+        });
+
+        const itemsToCreate = [];
 
         for (const item of body.items) {
           // Get current system qty
@@ -75,19 +85,13 @@ export const inventoryCheckController = {
           const systemQty = product.stock;
           const difference = item.actualQty - systemQty;
 
-          // Only create record if there's a difference or if we want to log every check.
-          // Let's log every check for audit purposes.
-          const code = await generateCheckCode();
-          
-          const newCheck = await tx.inventoryCheck.create({
-            data: {
-              code,
-              productId: item.productId,
-              systemQty,
-              actualQty: item.actualQty,
-              difference,
-              note: item.note,
-            }
+          itemsToCreate.push({
+            inventoryCheckId: newCheck.id,
+            productId: item.productId,
+            systemQty,
+            actualQty: item.actualQty,
+            difference,
+            note: item.note,
           });
 
           // Update stock to actual
@@ -95,11 +99,18 @@ export const inventoryCheckController = {
             where: { id: item.productId },
             data: { stock: item.actualQty },
           });
-
-          createdChecks.push(newCheck);
+        }
+        
+        if (itemsToCreate.length > 0) {
+          await tx.inventoryCheckItem.createMany({
+            data: itemsToCreate
+          });
         }
 
-        return createdChecks;
+        return await tx.inventoryCheck.findUnique({
+          where: { id: newCheck.id },
+          include: { items: true }
+        });
       });
 
       res.status(201).json(results);
