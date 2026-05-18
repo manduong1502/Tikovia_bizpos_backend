@@ -17,6 +17,43 @@ export const dashboardController = {
       const startOfPrevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const endOfPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
 
+      const timeProd = req.query.timeProd as string || 'Tháng này';
+      const timeCust = req.query.timeCust as string || 'Tháng này';
+
+      const getRange = (type: string) => {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        const end = new Date(d);
+        end.setHours(23, 59, 59, 999);
+        if (type === 'Hôm nay') {
+          return { start: d, end: end };
+        }
+        if (type === 'Hôm qua') {
+          const start = new Date(d);
+          start.setDate(start.getDate() - 1);
+          const e = new Date(start);
+          e.setHours(23, 59, 59, 999);
+          return { start, end: e };
+        }
+        if (type === '7 ngày qua') {
+          const start = new Date(d);
+          start.setDate(start.getDate() - 6);
+          return { start, end };
+        }
+        if (type === 'Tháng trước') {
+          const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+          const e = new Date(d.getFullYear(), d.getMonth(), 0, 23, 59, 59, 999);
+          return { start, end: e };
+        }
+        // Default: Tháng này
+        const start = new Date(d.getFullYear(), d.getMonth(), 1);
+        const e = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+        return { start, end: e };
+      };
+
+      const prodRange = getRange(timeProd);
+      const custRange = getRange(timeCust);
+
       // All queries run in parallel for speed
       const [
         todayOrders,
@@ -72,18 +109,18 @@ export const dashboardController = {
           where: { createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: 'COMPLETED' },
           _sum: { total: true },
         }),
-        // Top hàng bán chạy (theo tháng này)
+        // Top hàng bán chạy
         prisma.orderItem.groupBy({
           by: ['productId'],
-          where: { order: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' } },
+          where: { order: { createdAt: { gte: prodRange.start, lte: prodRange.end }, status: 'COMPLETED' } },
           _sum: { quantity: true, total: true },
           orderBy: { _sum: { quantity: 'desc' } },
           take: 5,
         }),
-        // Top khách chi tiêu (theo tháng này)
+        // Top khách chi tiêu
         prisma.order.groupBy({
           by: ['customerId'],
-          where: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED', customerId: { not: null } },
+          where: { createdAt: { gte: custRange.start, lte: custRange.end }, status: 'COMPLETED', customerId: { not: null } },
           _sum: { total: true },
           _count: { id: true },
           orderBy: { _sum: { total: 'desc' } },
