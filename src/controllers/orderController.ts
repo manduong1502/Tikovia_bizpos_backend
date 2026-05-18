@@ -208,7 +208,7 @@ export const orderController = {
               paymentMethod: body.paymentMethod === 'CASH' ? 'cash' : 'bank',
               isAccounting: true,
               status: 'completed',
-              branch: body.branch || 'Chi nhánh trung tâm',
+              branch: (body as any).branch || 'Chi nhánh trung tâm',
               userId: req.user!.id,
               orderId: newOrder.id,
               note: `Thu tiền đơn hàng ${code}`,
