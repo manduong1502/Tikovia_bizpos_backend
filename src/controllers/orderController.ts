@@ -88,6 +88,7 @@ export const orderController = {
           include: {
             customer: { select: { id: true, name: true, phone: true } },
             user: { select: { id: true, fullName: true } },
+            returns: { select: { code: true } },
             _count: { select: { items: true } },
           },
           skip: (page - 1) * limit,
