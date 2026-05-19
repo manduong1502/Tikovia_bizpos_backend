@@ -48,7 +48,7 @@ export const returnController = {
           where,
           include: {
             customer: { select: { id: true, name: true, phone: true } },
-            order: { select: { id: true, code: true } },
+            order: { select: { id: true, code: true, user: { select: { fullName: true } } } },
             _count: { select: { items: true } },
           },
           skip: (page - 1) * limit,
