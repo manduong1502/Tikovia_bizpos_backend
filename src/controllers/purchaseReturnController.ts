@@ -151,10 +151,34 @@ export const purchaseReturnController = {
 
           const netReturn = total - body.discount;
           const debtReduction = netReturn - body.paid;
-          if (debtReduction > 0) {
+          if (debtReduction !== 0) {
             await tx.supplier.update({
               where: { id: body.supplierId },
               data: { totalDebt: { decrement: debtReduction } },
+            });
+          }
+
+          if (body.paid > 0) {
+            const supplier = await tx.supplier.findUnique({ where: { id: body.supplierId } });
+            const cashbookCode = `PTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+            
+            await tx.cashbookEntry.create({
+              data: {
+                code: cashbookCode,
+                type: 'INCOME',
+                amount: body.paid,
+                category: 'Thu tiền trả hàng', 
+                partnerType: 'supplier',
+                supplierId: body.supplierId,
+                partnerName: supplier ? supplier.name : 'Nhà cung cấp',
+                paymentMethod: 'cash',
+                isAccounting: true,
+                status: 'completed',
+                branch: 'Chi nhánh trung tâm',
+                userId: req.user!.id,
+                purchaseOrderId: body.purchaseOrderId || null,
+                note: `Thu tiền nhà cung cấp trả lại (Phiếu ${code})`,
+              }
             });
           }
         }

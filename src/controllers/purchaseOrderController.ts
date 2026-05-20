@@ -264,7 +264,7 @@ export const purchaseOrderController = {
           }
 
           const debt = Number(po.total) - Number(po.paid);
-          if (debt > 0) {
+          if (debt !== 0) {
             await tx.supplier.update({
               where: { id: po.supplierId },
               data: { totalDebt: { decrement: debt } },
