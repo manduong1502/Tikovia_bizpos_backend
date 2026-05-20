@@ -41,6 +41,9 @@ export const categoryController = {
   create: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = categorySchema.parse(req.body);
+      const existing = await prisma.category.findUnique({ where: { name: data.name } });
+      if (existing) return res.status(400).json({ message: 'Tên nhóm hàng đã tồn tại' });
+
       const category = await prisma.category.create({
         data,
         include: { _count: { select: { products: true, children: true } } },
@@ -54,6 +57,11 @@ export const categoryController = {
   update: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = categorySchema.partial().parse(req.body);
+      if (data.name) {
+        const existing = await prisma.category.findFirst({ where: { name: data.name, id: { not: Number(req.params.id) } } });
+        if (existing) return res.status(400).json({ message: 'Tên nhóm hàng đã tồn tại' });
+      }
+
       const category = await prisma.category.update({
         where: { id: Number(req.params.id) },
         data,

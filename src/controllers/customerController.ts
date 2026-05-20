@@ -150,6 +150,10 @@ export const customerController = {
   create: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parsed = customerSchema.parse(req.body);
+      
+      const existingName = await prisma.customer.findFirst({ where: { name: parsed.name } });
+      if (existingName) return res.status(400).json({ message: 'Tên khách hàng đã tồn tại' });
+      
       const code = parsed.code && parsed.code.trim() !== '' ? parsed.code.trim() : `KH${Math.floor(100000 + Math.random() * 900000)}`;
       const customer = await prisma.customer.create({
         data: {
@@ -166,6 +170,12 @@ export const customerController = {
   update: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = customerSchema.partial().parse(req.body);
+      
+      if (data.name) {
+        const existingName = await prisma.customer.findFirst({ where: { name: data.name, id: { not: Number(req.params.id) } } });
+        if (existingName) return res.status(400).json({ message: 'Tên khách hàng đã tồn tại' });
+      }
+
       const customer = await prisma.customer.update({
         where: { id: Number(req.params.id) },
         data,

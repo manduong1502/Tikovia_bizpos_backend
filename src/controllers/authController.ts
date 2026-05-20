@@ -61,6 +61,21 @@ export const authController = {
   register: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const data = registerSchema.parse(req.body);
+      
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { username: data.username },
+            ...(data.email ? [{ email: data.email }] : []),
+          ],
+        },
+      });
+
+      if (existingUser) {
+        if (existingUser.username === data.username) return res.status(400).json({ message: 'Tên đăng nhập đã tồn tại' });
+        if (existingUser.email === data.email) return res.status(400).json({ message: 'Email đã tồn tại' });
+      }
+
       const hashedPassword = await bcrypt.hash(data.password, 12);
 
       const user = await prisma.user.create({

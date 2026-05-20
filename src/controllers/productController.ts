@@ -10,8 +10,8 @@ const productSchema = z.object({
   categoryId: z.number().int().optional().nullable(),
   brandId: z.number().int().optional().nullable(),
   supplierId: z.number().int().optional().nullable(),
-  costPrice: z.number().min(0).default(0),
-  sellPrice: z.number().min(0).default(0),
+  costPrice: z.number().min(0),
+  sellPrice: z.number().min(0),
   stock: z.number().default(0),
   minStock: z.number().default(0),
   maxStock: z.number().default(999999999),
@@ -130,6 +130,9 @@ export const productController = {
     try {
       const data = productSchema.parse(req.body);
       
+      const existingName = await prisma.product.findFirst({ where: { name: data.name } });
+      if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
+      
       // Auto-generate sku if empty
       if (!data.sku || data.sku.trim() === '') {
         data.sku = `SP${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
@@ -158,6 +161,11 @@ export const productController = {
 
       const data = productSchema.partial().parse(bodyData);
       
+      if (data.name) {
+        const existingName = await prisma.product.findFirst({ where: { name: data.name, id: { not: Number(req.params.id) } } });
+        if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
+      }
+
       if (data.sku === '') {
         delete data.sku; // Do not overwrite with empty string
       }

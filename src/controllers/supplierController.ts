@@ -75,6 +75,11 @@ export const supplierController = {
   create: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = { ...req.body };
+      if (!data.name || data.name.trim() === '') return res.status(400).json({ message: 'Tên nhà cung cấp không được trống' });
+      
+      const existingName = await prisma.supplier.findFirst({ where: { name: data.name } });
+      if (existingName) return res.status(400).json({ message: 'Tên nhà cung cấp đã tồn tại' });
+      
       const totalSpent = Number(data.total_spent || data.totalSpent || 0);
       const totalDebt = Number(data.debt || data.totalDebt || 0);
       const code = data.code && data.code.trim() !== '' ? data.code.trim() : `NCC${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
@@ -114,6 +119,12 @@ export const supplierController = {
   update: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = { ...req.body };
+      
+      if (data.name) {
+        const existingName = await prisma.supplier.findFirst({ where: { name: data.name, id: { not: Number(req.params.id) } } });
+        if (existingName) return res.status(400).json({ message: 'Tên nhà cung cấp đã tồn tại' });
+      }
+
       const updateData: any = {
         name: data.name,
         phone: data.phone || null,
