@@ -51,3 +51,37 @@ export const authorize = (...roles: string[]) => {
   };
 };
 
+export interface SuperAdminRequest extends Request {
+  superAdmin?: {
+    id: number;
+    username: string;
+    fullName: string;
+  };
+}
+
+export const authenticateSuperAdmin = async (req: SuperAdminRequest, res: Response, next: NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Token xác thực không hợp lệ' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, config.jwt.secret) as { id: number; username: string; isSuperAdmin: boolean };
+
+    if (!decoded.isSuperAdmin) {
+      return res.status(403).json({ message: 'Tài khoản không có quyền truy cập hệ thống' });
+    }
+
+    const superAdmin = await prisma.superAdmin.findUnique({ where: { id: decoded.id } });
+    if (!superAdmin) {
+      return res.status(401).json({ message: 'Tài khoản Super Admin không tồn tại' });
+    }
+
+    req.superAdmin = { id: superAdmin.id, username: superAdmin.username, fullName: superAdmin.fullName };
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Phiên đăng nhập đã hết hạn' });
+  }
+};
+

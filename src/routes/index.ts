@@ -15,7 +15,7 @@ import { inventoryCheckController } from '../controllers/inventoryCheckControlle
 import { reportController } from '../controllers/reportController';
 import { brandController } from '../controllers/brandController';
 import { tenantController } from '../controllers/tenantController';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate, authorize, authenticateSuperAdmin } from '../middlewares/auth';
 
 const router = Router();
 
@@ -104,8 +104,8 @@ router.get('/cashbook/partners', authenticate, cashbookController.getPartners);
 router.post('/cashbook/partners', authenticate, cashbookController.createPartner);
 
 // ─── Tenants (Super Admin Only) ───
-router.get('/tenants', authenticate, tenantController.getAll);
-router.put('/tenants/:id', authenticate, tenantController.update);
-router.delete('/tenants/:id', authenticate, tenantController.delete);
+router.get('/tenants', authenticateSuperAdmin, tenantController.getAll);
+router.put('/tenants/:id', authenticateSuperAdmin, tenantController.update);
+router.delete('/tenants/:id', authenticateSuperAdmin, tenantController.delete);
 
 export default router;

@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { config } from '../config';
-import { AuthRequest } from '../middlewares/auth';
+import { AuthRequest, SuperAdminRequest } from '../middlewares/auth';
 
 const loginSchema = z.object({
   username: z.string().min(1, 'Tên đăng nhập không được để trống'),
@@ -215,6 +215,60 @@ export const authController = {
         return res.status(404).json({ message: 'Không tìm thấy thông tin cửa hàng' });
       }
       res.json(tenant);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // POST /api/auth/system-login
+  systemLogin: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { username, password } = loginSchema.parse(req.body);
+
+      // Find Super Admin by username
+      const superAdmin = await prisma.superAdmin.findUnique({
+        where: { username },
+      });
+
+      if (!superAdmin) {
+        return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
+      }
+
+      const validPassword = await bcrypt.compare(password, superAdmin.password);
+      if (!validPassword) {
+        return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
+      }
+
+      const token = jwt.sign(
+        { id: superAdmin.id, username: superAdmin.username, isSuperAdmin: true },
+        config.jwt.secret,
+        { expiresIn: config.jwt.expiresIn as any }
+      );
+
+      res.json({
+        token,
+        user: {
+          id: superAdmin.id,
+          username: superAdmin.username,
+          fullName: superAdmin.fullName,
+          isSuperAdmin: true,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/auth/system-me
+  systemMe: async (req: SuperAdminRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.superAdmin) {
+        return res.status(401).json({ message: 'Chưa đăng nhập hệ thống' });
+      }
+      res.json({
+        ...req.superAdmin,
+        isSuperAdmin: true,
+      });
     } catch (error) {
       next(error);
     }

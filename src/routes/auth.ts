@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authController } from '../controllers/authController';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate, authorize, authenticateSuperAdmin } from '../middlewares/auth';
 
 const router = Router();
 
@@ -9,6 +9,10 @@ router.post('/register', authenticate, authorize('ADMIN'), authController.regist
 router.post('/register-tenant', authController.registerTenant);
 router.get('/tenant', authController.getTenant);
 router.get('/me', authenticate, authController.me);
+
+// Super Admin Auth routes
+router.post('/system-login', authController.systemLogin);
+router.get('/system-me', authenticateSuperAdmin, authController.systemMe);
 
 export default router;
 

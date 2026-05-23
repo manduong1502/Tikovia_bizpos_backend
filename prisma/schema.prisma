@@ -537,3 +537,13 @@ model SequenceTracker {
 
   @@unique([tenantId, name])
 }
+
+// ─── Super Admin (Quản trị hệ thống SaaS) ───
+model SuperAdmin {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  fullName  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

@@ -175,10 +175,25 @@ async function main() {
   }
   console.log(`  ✅ ${suppliers.length} nhà cung cấp`);
 
+  // ─── Super Admin ───
+  const superAdminPassword = await bcrypt.hash('Skybone7194@', 12);
+  const superAdmin = await prisma.superAdmin.upsert({
+    where: { username: 'tikovia' },
+    update: {},
+    create: {
+      username: 'tikovia',
+      password: superAdminPassword,
+      fullName: 'Tikovia Owner',
+    },
+  });
+  console.log(`  ✅ Super Admin: ${superAdmin.username}`);
+
   console.log('\n🎉 Seed completed!\n');
   console.log('📝 Tài khoản đăng nhập (Gian hàng: demo):');
   console.log('   Admin:    admin / admin123');
   console.log('   Nhân viên: nhanvien1 / staff123');
+  console.log('📝 Tài khoản Super Admin:');
+  console.log('   Super Admin: tikovia / Skybone7194@');
 }
 
 main()

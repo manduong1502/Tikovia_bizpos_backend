@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
-import { AuthRequest } from '../middlewares/auth';
+import { SuperAdminRequest } from '../middlewares/auth';
 
 const updateTenantSchema = z.object({
   name: z.string().optional(),
@@ -15,13 +15,8 @@ const updateTenantSchema = z.object({
 
 export const tenantController = {
   // GET /api/tenants (Super Admin only)
-  getAll: async (req: AuthRequest, res: Response, next: NextFunction) => {
+  getAll: async (req: SuperAdminRequest, res: Response, next: NextFunction) => {
     try {
-      // Check if user belongs to master tenant and is ADMIN
-      if (req.user!.tenantId !== 1 || req.user!.role !== 'ADMIN') {
-        return res.status(403).json({ message: 'Bạn không có quyền truy cập tài nguyên hệ thống' });
-      }
-
       const tenants = await prisma.tenant.findMany({
         orderBy: { createdAt: 'desc' },
         include: {
@@ -42,12 +37,8 @@ export const tenantController = {
   },
 
   // PUT /api/tenants/:id (Super Admin only)
-  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
+  update: async (req: SuperAdminRequest, res: Response, next: NextFunction) => {
     try {
-      if (req.user!.tenantId !== 1 || req.user!.role !== 'ADMIN') {
-        return res.status(403).json({ message: 'Bạn không có quyền thay đổi tài nguyên hệ thống' });
-      }
-
       const id = Number(req.params.id);
       const data = updateTenantSchema.parse(req.body);
 
@@ -57,10 +48,10 @@ export const tenantController = {
       // Cannot disable or expire the master tenant (id: 1)
       if (id === 1) {
         if (data.isActive === false) {
-          return res.status(400).json({ message: 'Không thể khóa gian hàng hệ thống' });
+          return res.status(400).json({ message: 'Không thể khóa gian hàng hệ thống gốc (id: 1)' });
         }
         if (data.expiredAt !== undefined) {
-          return res.status(400).json({ message: 'Không thể thiết lập hạn sử dụng cho gian hàng hệ thống' });
+          return res.status(400).json({ message: 'Không thể thiết lập hạn sử dụng cho gian hàng hệ thống gốc' });
         }
       }
 
@@ -79,12 +70,8 @@ export const tenantController = {
   },
 
   // DELETE /api/tenants/:id (Super Admin only)
-  delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
+  delete: async (req: SuperAdminRequest, res: Response, next: NextFunction) => {
     try {
-      if (req.user!.tenantId !== 1 || req.user!.role !== 'ADMIN') {
-        return res.status(403).json({ message: 'Bạn không có quyền xóa gian hàng hệ thống' });
-      }
-
       const id = Number(req.params.id);
       if (id === 1) {
         return res.status(400).json({ message: 'Không thể xóa gian hàng hệ thống gốc (id: 1)' });
