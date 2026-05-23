@@ -118,6 +118,18 @@ export const purchaseReturnController = {
           if (!po) throw new Error('Không tìm thấy phiếu nhập liên kết');
         }
 
+        // Verify all products belong to this tenant
+        const productIds = body.items.map(it => it.productId);
+        const dbProducts = await tx.product.findMany({
+          where: {
+            id: { in: productIds },
+            tenantId
+          }
+        });
+        if (dbProducts.length !== productIds.length) {
+          throw new Error('Một hoặc nhiều sản phẩm không hợp lệ hoặc không thuộc cửa hàng này');
+        }
+
         const code = await generatePurchaseReturnCode(tenantId, tx);
         let total = 0;
         const itemsData = body.items.map(item => {

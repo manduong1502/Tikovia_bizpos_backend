@@ -92,6 +92,15 @@ export const cashbookController = {
         supplierId,
       } = req.body;
 
+      if (customerId) {
+        const cust = await prisma.customer.findFirst({ where: { id: Number(customerId), tenantId } });
+        if (!cust) return res.status(404).json({ message: 'Không tìm thấy khách hàng của gian hàng này' });
+      }
+      if (supplierId) {
+        const sup = await prisma.supplier.findFirst({ where: { id: Number(supplierId), tenantId } });
+        if (!sup) return res.status(404).json({ message: 'Không tìm thấy nhà cung cấp của gian hàng này' });
+      }
+
       const typeEnum = (type === 'thu' || type === 'INCOME') ? 'INCOME' : 'EXPENSE';
       const prefix = typeEnum === 'INCOME' ? 'TTM' : 'TCM';
 
