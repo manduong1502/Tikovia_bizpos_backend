@@ -26,13 +26,20 @@ export const tenantResolver = async (req: TenantRequest, res: Response, next: Ne
     let subdomain = req.headers['x-tenant-subdomain'] as string;
     
     if (!subdomain && req.headers.host) {
-      const host = req.headers.host; // e.g. "demo.localhost:5000" or "vietstore.tikobia.vn"
-      const parts = host.split('.');
-      if (parts.length > 1) {
-        const sub = parts[0].toLowerCase();
-        // Loại bỏ www hoặc localhost thông thường
-        if (sub !== 'www' && sub !== 'localhost' && sub !== '127') {
-          subdomain = sub;
+      const host = req.headers.host.split(':')[0].toLowerCase(); // Loại bỏ port nếu có
+      
+      if (host === 'localhost' || host === 'bizpos.tikovia.vn' || host === 'www.bizpos.tikovia.vn') {
+        subdomain = 'demo';
+      } else {
+        const parts = host.split('.');
+        if (host.endsWith('.bizpos.tikovia.vn')) {
+          const sub = parts[0];
+          if (sub !== 'www') subdomain = sub;
+        } else if (host.endsWith('.tikovia.vn') && parts.length === 3) {
+          const sub = parts[0];
+          if (sub !== 'www' && sub !== 'bizpos') subdomain = sub;
+        } else if (parts.length === 2 && parts[1] === 'localhost') {
+          subdomain = parts[0];
         }
       }
     }
