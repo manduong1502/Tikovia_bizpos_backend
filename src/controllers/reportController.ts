@@ -64,6 +64,13 @@ export const reportController = {
       const expense = cashbook.filter(c => c.type === 'EXPENSE').reduce((sum, c) => sum + Number(c.amount), 0);
 
       // Map orders to KiotViet style transaction report details
+      const FRIENDLY_PAYMENT_METHODS: Record<string, string> = {
+        CASH: 'Tiền mặt',
+        CARD: 'Quẹt thẻ',
+        TRANSFER: 'Chuyển khoản',
+        MIXED: 'Kết hợp'
+      };
+
       const transactionDetails = orders.map(o => {
         const totalQty = o.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
         return {
@@ -80,7 +87,7 @@ export const reportController = {
           customerName: o.customer?.name || 'Khách lẻ',
           customerPhone: o.customer?.phone || '',
           createdBy: o.user?.username || 'Võ Thành Huy',
-          paymentMethod: o.paymentMethod || 'Tiền mặt'
+          paymentMethod: FRIENDLY_PAYMENT_METHODS[o.paymentMethod] || o.paymentMethod || 'Tiền mặt'
         };
       });
 
@@ -172,7 +179,7 @@ export const reportController = {
         },
         include: {
           items: {
-            include: { product: { select: { id: true, name: true, sku: true, unit: true, categoryId: true, type: true } } }
+            include: { product: { select: { id: true, name: true, sku: true, unit: true, categoryId: true } } }
           }
         }
       });
@@ -200,7 +207,6 @@ export const reportController = {
               name: item.product.name,
               unit: item.product.unit,
               categoryId: item.product.categoryId,
-              type: item.product.type,
               soldQty: 0,
               revenue: 0,
               returnQty: 0,

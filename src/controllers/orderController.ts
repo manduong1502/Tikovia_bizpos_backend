@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { AuthRequest } from '../middlewares/auth';
+import { memoryCache } from '../utils/cache';
 
 const orderItemSchema = z.object({
   productId: z.number().int(),
@@ -220,6 +221,7 @@ export const orderController = {
         return newOrder;
       });
 
+      memoryCache.clearPattern('products');
       res.status(201).json(order);
     } catch (error) {
       next(error);
@@ -274,6 +276,7 @@ export const orderController = {
         });
       });
 
+      memoryCache.clearPattern('products');
       res.json({ message: 'Đã hủy đơn hàng' });
     } catch (error) {
       next(error);
@@ -370,13 +373,40 @@ export const orderController = {
           });
         }
         
-        // 6. Update Cashbook entry if it exists
+        // 6. Update/Sync Cashbook entry
+        const existingEntry = await tx.cashbookEntry.findFirst({ where: { orderId: id } });
         if (paid > 0) {
-          const existingEntry = await tx.cashbookEntry.findFirst({ where: { orderId: id } });
           if (existingEntry) {
             await tx.cashbookEntry.update({
               where: { id: existingEntry.id },
-              data: { amount: paid, customerId: body.customerId || null }
+              data: { amount: paid, customerId: body.customerId || null, status: 'completed' }
+            });
+          } else {
+            const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+            await tx.cashbookEntry.create({
+              data: {
+                code: cashbookCode,
+                type: 'INCOME',
+                amount: paid,
+                category: 'Thu tiền khách trả',
+                partnerType: body.customerId ? 'customer' : 'other',
+                customerId: body.customerId || null,
+                partnerName: newOrder.customer?.name || 'Khách lẻ',
+                paymentMethod: body.paymentMethod === 'CARD' ? 'bank' : (body.paymentMethod === 'TRANSFER' ? 'bank' : 'cash'),
+                isAccounting: true,
+                status: 'completed',
+                branch: 'Chi nhánh trung tâm',
+                userId: req.user!.id,
+                orderId: id,
+                note: `Thu tiền đơn hàng ${newOrder.code} (Cập nhật)`,
+              }
+            });
+          }
+        } else {
+          if (existingEntry) {
+            await tx.cashbookEntry.update({
+              where: { id: existingEntry.id },
+              data: { amount: 0, status: 'cancelled', note: 'Hủy thanh toán theo hóa đơn cập nhật' }
             });
           }
         }
@@ -384,6 +414,7 @@ export const orderController = {
         return newOrder;
       });
 
+      memoryCache.clearPattern('products');
       res.json(updatedOrder);
     } catch (error) {
       next(error);
@@ -539,6 +570,7 @@ export const orderController = {
         }
       });
 
+      memoryCache.clearPattern('products');
       res.status(201).json({ message: `Đã import thành công ${importedCount} hóa đơn`, count: importedCount });
     } catch (error) {
       next(error);

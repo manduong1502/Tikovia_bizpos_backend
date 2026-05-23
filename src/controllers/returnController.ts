@@ -2,18 +2,21 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { AuthRequest } from '../middlewares/auth';
+import { memoryCache } from '../utils/cache';
 
 const returnItemSchema = z.object({
   productId: z.number().int(),
-  quantity: z.number().int().min(1),
+  quantity: z.number().min(0.001),
   price: z.number().min(0),
 });
 
 const createReturnSchema = z.object({
-  orderId: z.number().int(),
+  orderId: z.number().int().optional().nullable(),
   customerId: z.number().int().optional().nullable(),
   items: z.array(returnItemSchema).min(1, 'Đơn trả hàng phải có ít nhất 1 sản phẩm'),
   reason: z.string().optional().nullable(),
+  discount: z.number().min(0).default(0), // Phí trả hàng (khách chịu)
+  paid: z.number().min(0).default(0), // Tiền thực tế trả khách
 });
 
 // Auto-generate code using SequenceTracker to avoid race conditions
@@ -104,9 +107,11 @@ export const returnController = {
         const newReturn = await tx.return.create({
           data: {
             code,
-            orderId: body.orderId,
-            customerId: body.customerId,
+            orderId: body.orderId || null,
+            customerId: body.customerId || null,
             total,
+            discount: body.discount,
+            paid: body.paid,
             reason: body.reason,
             status: 'COMPLETED',
             items: { create: itemsData },
@@ -125,17 +130,53 @@ export const returnController = {
           });
         }
 
-        // Trừ chi tiêu khách hàng
+        // Cập nhật chi tiêu & nợ khách hàng
         if (body.customerId) {
           await tx.customer.update({
             where: { id: body.customerId },
             data: { totalSpent: { decrement: total } },
+          });
+
+          // nợ giảm = (tổng hàng trả - phí trả hàng) - tiền thực tế trả khách
+          const netRefund = total - body.discount;
+          const debtReduction = netRefund - body.paid;
+          if (debtReduction !== 0) {
+            await tx.customer.update({
+              where: { id: body.customerId },
+              data: { totalDebt: { decrement: debtReduction } },
+            });
+          }
+        }
+
+        // Tạo phiếu chi sổ quỹ nếu thực tế có trả lại tiền mặt/chuyển khoản cho khách
+        if (body.paid > 0) {
+          const customerObj = body.customerId ? await tx.customer.findUnique({ where: { id: body.customerId } }) : null;
+          const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+          
+          await tx.cashbookEntry.create({
+            data: {
+              code: cashbookCode,
+              type: 'EXPENSE',
+              amount: body.paid,
+              category: 'Chi tiền trả hàng', 
+              partnerType: body.customerId ? 'customer' : 'other',
+              customerId: body.customerId || null,
+              partnerName: customerObj ? customerObj.name : 'Khách lẻ',
+              paymentMethod: 'cash',
+              isAccounting: true,
+              status: 'completed',
+              branch: 'Chi nhánh trung tâm',
+              userId: req.user!.id,
+              returnId: newReturn.id,
+              note: `Chi trả khách trả hàng (Phiếu trả ${code})`,
+            }
           });
         }
 
         return newReturn;
       });
 
+      memoryCache.clearPattern('products');
       res.status(201).json(returnDoc);
     } catch (error) {
       next(error);

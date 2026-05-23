@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { config } from '../config';
+import { memoryCache } from '../utils/cache';
 
 const productSchema = z.object({
   sku: z.string().optional().nullable(),
@@ -57,6 +58,10 @@ export const productController = {
   // GET /api/products/all — lấy tất cả (cho dropdown/select)
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const cacheKey = 'products:all';
+      const cached = memoryCache.get(cacheKey);
+      if (cached) return res.json(cached);
+
       const products = await prisma.product.findMany({
         where: { isActive: true },
         include: { 
@@ -66,6 +71,8 @@ export const productController = {
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      memoryCache.set(cacheKey, products, 600); // 10 minutes
       res.json(products);
     } catch (error) {
       next(error);
@@ -79,6 +86,10 @@ export const productController = {
       const limit = Math.min(config.pagination.maxLimit, parseInt(req.query.limit as string) || config.pagination.defaultLimit);
       const search = (req.query.search as string) || '';
       const categoryId = req.query.categoryId ? parseInt(req.query.categoryId as string) : undefined;
+
+      const cacheKey = `products:list:${page}:${limit}:${search}:${categoryId || ''}`;
+      const cached = memoryCache.get(cacheKey);
+      if (cached) return res.json(cached);
 
       const where: any = { isActive: true };
       if (search) {
@@ -105,7 +116,9 @@ export const productController = {
         prisma.product.count({ where }),
       ]);
 
-      res.json({ data, total, page, limit, totalPages: Math.ceil(total / limit) });
+      const result = { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+      memoryCache.set(cacheKey, result, 600); // 10 minutes
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -114,11 +127,17 @@ export const productController = {
   // GET /api/products/:id
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const cacheKey = `products:id:${req.params.id}`;
+      const cached = memoryCache.get(cacheKey);
+      if (cached) return res.json(cached);
+
       const product = await prisma.product.findUnique({
         where: { id: Number(req.params.id) },
         include: { category: true, brand: true, supplier: true },
       });
       if (!product) return res.status(404).json({ message: 'Không tìm thấy hàng hóa' });
+
+      memoryCache.set(cacheKey, product, 600); // 10 minutes
       res.json(product);
     } catch (error) {
       next(error);
@@ -146,6 +165,8 @@ export const productController = {
           supplier: { select: { id: true, name: true } }
         },
       });
+
+      memoryCache.clearPattern('products');
       res.status(201).json(product);
     } catch (error) {
       next(error);
@@ -179,6 +200,8 @@ export const productController = {
           supplier: { select: { id: true, name: true } }
         },
       });
+
+      memoryCache.clearPattern('products');
       res.json(product);
     } catch (error) {
       next(error);
@@ -192,6 +215,8 @@ export const productController = {
         where: { id: Number(req.params.id) },
         data: { isActive: false },
       });
+
+      memoryCache.clearPattern('products');
       res.json({ message: 'Đã xóa hàng hóa' });
     } catch (error) {
       next(error);
@@ -282,6 +307,9 @@ export const productController = {
         }
       });
 
+      memoryCache.clearPattern('products');
+      memoryCache.delete('categories:all');
+      memoryCache.delete('brands:all');
       res.status(201).json({ message: `Đã import thành công ${importedCount} hàng hóa`, count: importedCount });
     } catch (error) {
       next(error);

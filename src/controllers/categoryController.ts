@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
+import { memoryCache } from '../utils/cache';
 
 const categorySchema = z.object({
   name: z.string().min(1, 'Tên nhóm hàng không được trống'),
@@ -11,6 +12,10 @@ const categorySchema = z.object({
 export const categoryController = {
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const cacheKey = 'categories:all';
+      const cached = memoryCache.get(cacheKey);
+      if (cached) return res.json(cached);
+
       const categories = await prisma.category.findMany({
         where: { parentId: null },
         include: {
@@ -32,7 +37,9 @@ export const categoryController = {
       // Also fetch all categories (flat) for total count
       const totalCount = await prisma.category.count();
 
-      res.json({ roots: categories, totalCount });
+      const result = { roots: categories, totalCount };
+      memoryCache.set(cacheKey, result, 600); // 10 minutes
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -48,6 +55,8 @@ export const categoryController = {
         data,
         include: { _count: { select: { products: true, children: true } } },
       });
+      memoryCache.delete('categories:all');
+      memoryCache.clearPattern('products');
       res.status(201).json(category);
     } catch (error) {
       next(error);
@@ -67,6 +76,8 @@ export const categoryController = {
         data,
         include: { _count: { select: { products: true, children: true } } },
       });
+      memoryCache.delete('categories:all');
+      memoryCache.clearPattern('products');
       res.json(category);
     } catch (error) {
       next(error);
@@ -81,6 +92,8 @@ export const categoryController = {
         data: { parentId: null },
       });
       await prisma.category.delete({ where: { id: Number(req.params.id) } });
+      memoryCache.delete('categories:all');
+      memoryCache.clearPattern('products');
       res.json({ message: 'Đã xóa nhóm hàng' });
     } catch (error) {
       next(error);

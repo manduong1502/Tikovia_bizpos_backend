@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { AuthRequest } from '../middlewares/auth';
+import { memoryCache } from '../utils/cache';
 
 const checkItemSchema = z.object({
   productId: z.number().int(),
@@ -111,12 +112,13 @@ export const inventoryCheckController = {
           });
         }
 
-        return await tx.inventoryCheck.findUnique({
+      return await tx.inventoryCheck.findUnique({
           where: { id: newCheck.id },
           include: { items: true }
         });
       });
 
+      memoryCache.clearPattern('products');
       res.status(201).json(results);
     } catch (error) {
       next(error);

@@ -96,6 +96,7 @@ model Product {
   @@index([categoryId])
   @@index([brandId])
   @@index([supplierId])
+  @@index([isActive, categoryId])
 }
 
 // ─── Thương hiệu ───
@@ -189,6 +190,7 @@ model Order {
   @@index([userId])
   @@index([createdAt])
   @@index([status])
+  @@index([status, createdAt])
 }
 
 enum OrderStatus {
@@ -224,11 +226,13 @@ model OrderItem {
 model Return {
   id         Int          @id @default(autoincrement())
   code       String       @unique
-  orderId    Int
-  order      Order        @relation(fields: [orderId], references: [id])
+  orderId    Int?
+  order      Order?       @relation(fields: [orderId], references: [id])
   customerId Int?
   customer   Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   total      Decimal      @default(0) @db.Decimal(15, 2)
+  discount   Decimal      @default(0) @db.Decimal(15, 2) // Phí trả hàng (khách chịu)
+  paid       Decimal      @default(0) @db.Decimal(15, 2) // Tiền thực tế trả khách
   reason     String?
   status     ReturnStatus @default(COMPLETED)
   createdAt  DateTime     @default(now())
@@ -239,6 +243,7 @@ model Return {
   @@index([code])
   @@index([orderId])
   @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 enum ReturnStatus {
@@ -374,9 +379,9 @@ model InventoryCheckItem {
   inventoryCheck   InventoryCheck @relation(fields: [inventoryCheckId], references: [id], onDelete: Cascade)
   productId        Int
   product          Product        @relation(fields: [productId], references: [id])
-  systemQty        Int            // Tồn hệ thống
-  actualQty        Int            // Tồn thực tế
-  difference       Int            // Chênh lệch
+  systemQty        Float          // Tồn hệ thống
+  actualQty        Float          // Tồn thực tế
+  difference       Float          // Chênh lệch
   note             String?
 
   @@index([inventoryCheckId])
@@ -428,6 +433,7 @@ model CashbookEntry {
   @@index([supplierId])
   @@index([orderId])
   @@index([purchaseOrderId])
+  @@index([type, createdAt])
 }
 
 enum CashbookType {

@@ -86,6 +86,8 @@ export const cashbookController = {
         note,
         branch,
         createdBy,
+        customerId,
+        supplierId,
       } = req.body;
 
       const typeEnum = (type === 'thu' || type === 'INCOME') ? 'INCOME' : 'EXPENSE';
@@ -114,6 +116,8 @@ export const cashbookController = {
           createdBy: createdBy || (req.user as any)?.fullName || req.user?.username || 'Thu ngân',
           note: note || '',
           userId: req.user!.id,
+          customerId: customerId ? Number(customerId) : null,
+          supplierId: supplierId ? Number(supplierId) : null,
         },
         include: { user: { select: { id: true, fullName: true } } },
       });

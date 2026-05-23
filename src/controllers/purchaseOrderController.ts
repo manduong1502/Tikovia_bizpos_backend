@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { AuthRequest } from '../middlewares/auth';
+import { memoryCache } from '../utils/cache';
 
 const purchaseOrderItemSchema = z.object({
   productId: z.number().int(),
@@ -167,6 +168,7 @@ export const purchaseOrderController = {
         return newPO;
       });
 
+      memoryCache.clearPattern('products');
       res.status(201).json(po);
     } catch (error) {
       next(error);
@@ -178,6 +180,12 @@ export const purchaseOrderController = {
     try {
       const id = Number(req.params.id);
       const { note, received_by, supplierId, items, paid, status } = req.body;
+
+      const oldPO = await prisma.purchaseOrder.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+      if (!oldPO) return res.status(404).json({ message: 'Không tìm thấy phiếu nhập' });
 
       let finalNote = note !== undefined ? note : undefined;
       if (received_by) {
@@ -191,13 +199,41 @@ export const purchaseOrderController = {
       if (status !== undefined) updateData.status = status;
 
       const po = await prisma.$transaction(async (tx) => {
+        // 1. Nếu phiếu nhập cũ đã COMPLETED, ta revert toàn bộ ảnh hưởng cũ trước
+        if (oldPO.status === 'COMPLETED') {
+          // Trừ kho hàng
+          for (const item of oldPO.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { decrement: item.quantity } },
+            });
+          }
+          // Trừ nợ nhà cung cấp
+          const oldDebt = Number(oldPO.total) - Number(oldPO.paid);
+          if (oldDebt > 0) {
+            await tx.supplier.update({
+              where: { id: oldPO.supplierId },
+              data: { totalDebt: { decrement: oldDebt } },
+            });
+          }
+          // Hủy phiếu chi cũ
+          if (Number(oldPO.paid) > 0) {
+            await tx.cashbookEntry.updateMany({
+              where: { purchaseOrderId: id, status: 'completed' },
+              data: { status: 'cancelled', note: 'Hủy thanh toán theo phiếu nhập cập nhật' }
+            });
+          }
+        }
+
+        // 2. Cập nhật chi tiết items
+        let total = Number(oldPO.total);
         if (items && Array.isArray(items)) {
           await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } });
           
-          let total = 0;
+          let computedTotal = 0;
           const itemsData = items.map((item: any) => {
             const itemTotal = Number(item.quantity) * Number(item.price);
-            total += itemTotal;
+            computedTotal += itemTotal;
             return {
               productId: item.productId,
               quantity: Number(item.quantity),
@@ -206,30 +242,75 @@ export const purchaseOrderController = {
             };
           });
 
+          total = computedTotal;
           updateData.total = total;
-          await tx.purchaseOrder.update({
-            where: { id },
-            data: {
-              ...updateData,
-              items: { create: itemsData }
-            }
-          });
-        } else {
-          await tx.purchaseOrder.update({
-            where: { id },
-            data: updateData
-          });
+          updateData.items = { create: itemsData };
         }
 
-        return await tx.purchaseOrder.findUnique({
+        // 3. Thực hiện cập nhật
+        const newPO = await tx.purchaseOrder.update({
           where: { id },
+          data: updateData,
           include: {
-            items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+            items: { include: { product: { select: { id: true, name: true } } } },
             supplier: true
           }
         });
+
+        // 4. Nếu trạng thái mới là COMPLETED, áp dụng các ảnh hưởng mới
+        const finalStatus = status !== undefined ? status : oldPO.status;
+        const finalPaid = paid !== undefined ? Number(paid) : Number(oldPO.paid);
+        const finalSupplierId = supplierId !== undefined ? Number(supplierId) : oldPO.supplierId;
+
+        if (finalStatus === 'COMPLETED') {
+          // Cộng kho mới
+          const finalItems = await tx.purchaseOrderItem.findMany({ where: { purchaseOrderId: id } });
+          for (const item of finalItems) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            });
+          }
+
+          // Cộng nợ nhà cung cấp mới
+          const newDebt = total - finalPaid;
+          if (newDebt > 0) {
+            await tx.supplier.update({
+              where: { id: finalSupplierId },
+              data: { totalDebt: { increment: newDebt } },
+            });
+          }
+          
+          // Tạo phiếu chi mới nếu paid > 0
+          if (finalPaid > 0) {
+            const supplierObj = await tx.supplier.findUnique({ where: { id: finalSupplierId } });
+            const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+            
+            await tx.cashbookEntry.create({
+              data: {
+                code: cashbookCode,
+                type: 'EXPENSE',
+                amount: finalPaid,
+                category: 'Trả tiền nhà cung cấp',
+                partnerType: 'supplier',
+                supplierId: finalSupplierId,
+                partnerName: supplierObj ? supplierObj.name : 'Nhà cung cấp',
+                paymentMethod: 'cash',
+                isAccounting: true,
+                status: 'completed',
+                branch: 'Chi nhánh trung tâm',
+                userId: req.user!.id,
+                purchaseOrderId: id,
+                note: `Trả tiền nhập hàng ${newPO.code} (Cập nhật)`,
+              }
+            });
+          }
+        }
+
+        return newPO;
       });
 
+      memoryCache.clearPattern('products');
       res.json(po);
     } catch (error) {
       next(error);
@@ -279,6 +360,7 @@ export const purchaseOrderController = {
         }
       });
 
+      memoryCache.clearPattern('products');
       res.json({ message: 'Đã hủy phiếu nhập' });
     } catch (error) {
       next(error);

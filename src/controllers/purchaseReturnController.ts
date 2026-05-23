@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { AuthRequest } from '../middlewares/auth';
+import { memoryCache } from '../utils/cache';
 
 const purchaseReturnItemSchema = z.object({
   productId: z.number().int(),
@@ -186,6 +187,7 @@ export const purchaseReturnController = {
         return newPR;
       });
 
+      memoryCache.clearPattern('products');
       res.status(201).json(pr);
     } catch (error) {
       next(error);

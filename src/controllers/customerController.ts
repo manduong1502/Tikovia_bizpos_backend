@@ -149,7 +149,11 @@ export const customerController = {
 
   create: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const parsed = customerSchema.parse(req.body);
+      const bodyData = { ...req.body };
+      if (bodyData.debt !== undefined && bodyData.totalDebt === undefined) {
+        bodyData.totalDebt = Number(bodyData.debt);
+      }
+      const parsed = customerSchema.parse(bodyData);
       
       const existingName = await prisma.customer.findFirst({ where: { name: parsed.name } });
       if (existingName) return res.status(400).json({ message: 'Tên khách hàng đã tồn tại' });
@@ -169,7 +173,11 @@ export const customerController = {
 
   update: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const data = customerSchema.partial().parse(req.body);
+      const bodyData = { ...req.body };
+      if (bodyData.debt !== undefined && bodyData.totalDebt === undefined) {
+        bodyData.totalDebt = Number(bodyData.debt);
+      }
+      const data = customerSchema.partial().parse(bodyData);
       
       if (data.name) {
         const existingName = await prisma.customer.findFirst({ where: { name: data.name, id: { not: Number(req.params.id) } } });
