@@ -7,6 +7,7 @@ export interface TenantInfo {
   subdomain: string;
   plan: string;
   isActive: boolean;
+  expiredAt?: Date | null;
 }
 
 export interface TenantRequest extends Request {
@@ -54,6 +55,10 @@ export const tenantResolver = async (req: TenantRequest, res: Response, next: Ne
       return res.status(403).json({ message: `Cửa hàng '${tenant.name}' đã bị tạm khóa.` });
     }
 
+    if (tenant.expiredAt && new Date(tenant.expiredAt) < new Date()) {
+      return res.status(403).json({ message: `Cửa hàng '${tenant.name}' đã hết hạn sử dụng. Vui lòng liên hệ quản trị viên hệ thống để gia hạn.` });
+    }
+
     // 3. Gắn thông tin tenant vào request
     req.tenant = {
       id: tenant.id,
@@ -61,6 +66,7 @@ export const tenantResolver = async (req: TenantRequest, res: Response, next: Ne
       subdomain: tenant.subdomain,
       plan: tenant.plan,
       isActive: tenant.isActive,
+      expiredAt: tenant.expiredAt,
     };
 
     next();

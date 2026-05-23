@@ -16,8 +16,11 @@ model Tenant {
   id        Int      @id @default(autoincrement())
   name      String   // Tên cửa hàng
   subdomain String   @unique // Subdomain định danh (vd: "demo", "vietstore")
+  phone     String?  // Số điện thoại cửa hàng
+  area      String?  // Khu vực cửa hàng
   plan      String   @default("TRIAL") // TRIAL, STANDARD, PRO
   isActive  Boolean  @default(true)
+  expiredAt DateTime? // Hạn sử dụng (null = vĩnh viễn)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

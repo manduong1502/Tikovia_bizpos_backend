@@ -23,6 +23,8 @@ const registerSchema = z.object({
 const registerTenantSchema = z.object({
   tenantName: z.string().min(1, 'Tên cửa hàng không được để trống'),
   subdomain: z.string().min(2, 'Subdomain tối thiểu 2 ký tự').regex(/^[a-z0-9-]+$/, 'Subdomain chỉ gồm chữ thường, số và dấu gạch ngang'),
+  phone: z.string().min(10, 'Số điện thoại tối thiểu 10 chữ số'),
+  area: z.string().min(1, 'Khu vực không được để trống'),
   adminUsername: z.string().min(3, 'Tên đăng nhập tối thiểu 3 ký tự'),
   adminPassword: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
   adminFullName: z.string().min(1, 'Họ tên không được để trống'),
@@ -139,6 +141,8 @@ export const authController = {
           data: {
             name: body.tenantName,
             subdomain: body.subdomain,
+            phone: body.phone,
+            area: body.area,
             plan: 'TRIAL',
           },
         });
@@ -151,6 +155,7 @@ export const authController = {
             password: hashedPassword,
             fullName: body.adminFullName,
             email: body.adminEmail,
+            phone: body.phone,
             role: 'ADMIN',
             tenantId: newTenant.id,
           },
