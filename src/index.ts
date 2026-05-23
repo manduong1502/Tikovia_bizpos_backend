@@ -6,6 +6,7 @@ import compression from 'compression';
 import { config } from './config';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
+import { tenantResolver } from './middlewares/tenant';
 
 const app = express();
 
@@ -17,7 +18,7 @@ app.use(cors({
   origin: config.cors.origin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Subdomain'],
 }));
 
 // ─── Performance ───
@@ -36,7 +37,8 @@ app.get('/health', (req, res) => {
 });
 
 // ─── API Routes ───
-app.use('/api', routes);
+app.use('/api', tenantResolver, routes);
+
 
 // ─── Error handling ───
 app.use(notFoundHandler);

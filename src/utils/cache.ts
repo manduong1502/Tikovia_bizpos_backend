@@ -1,6 +1,10 @@
 class SimpleCache {
   private cache = new Map<string, { value: any; expiry: number }>();
 
+  tenantKey(tenantId: number, key: string): string {
+    return `tenant:${tenantId}:${key}`;
+  }
+
   set(key: string, value: any, ttlSeconds: number = 300) {
     const expiry = Date.now() + ttlSeconds * 1000;
     this.cache.set(key, { value, expiry });
@@ -34,3 +38,4 @@ class SimpleCache {
 }
 
 export const memoryCache = new SimpleCache();
+

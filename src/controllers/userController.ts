@@ -1,11 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import bcrypt from 'bcryptjs';
+import { AuthRequest } from '../middlewares/auth';
 
 export const userController = {
-  getAll: async (req: Request, res: Response, next: NextFunction) => {
+  getAll: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const users = await prisma.user.findMany({
+        where: { tenantId },
         select: {
           id: true, username: true, fullName: true, email: true,
           phone: true, role: true, isActive: true, createdAt: true,
@@ -18,9 +21,16 @@ export const userController = {
     }
   },
 
-  update: async (req: Request, res: Response, next: NextFunction) => {
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const { password, ...data } = req.body;
+      
+      const existingUser = await prisma.user.findFirst({
+        where: { id: Number(req.params.id), tenantId }
+      });
+      if (!existingUser) return res.status(404).json({ message: 'Không tìm thấy nhân viên' });
+
       const updateData: any = { ...data };
       if (password) {
         updateData.password = await bcrypt.hash(password, 12);
@@ -39,9 +49,12 @@ export const userController = {
     }
   },
 
-  toggleActive: async (req: Request, res: Response, next: NextFunction) => {
+  toggleActive: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const user = await prisma.user.findUnique({ where: { id: Number(req.params.id) } });
+      const tenantId = req.user!.tenantId;
+      const user = await prisma.user.findFirst({
+        where: { id: Number(req.params.id), tenantId }
+      });
       if (!user) return res.status(404).json({ message: 'Không tìm thấy nhân viên' });
 
       const updated = await prisma.user.update({

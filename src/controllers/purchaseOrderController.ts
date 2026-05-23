@@ -18,13 +18,13 @@ const createPurchaseOrderSchema = z.object({
   status: z.enum(['PENDING', 'COMPLETED']).default('COMPLETED'),
 });
 
-// Auto-generate code using SequenceTracker to avoid race conditions
-async function generatePOCode(txClient?: any): Promise<string> {
+// Auto-generate code using SequenceTracker scoped by tenantId
+async function generatePOCode(tenantId: number, txClient?: any): Promise<string> {
   const db = txClient || prisma;
   const seq = await db.sequenceTracker.upsert({
-    where: { name: 'PURCHASE_ORDER' },
+    where: { tenantId_name: { tenantId, name: 'PURCHASE_ORDER' } },
     update: { value: { increment: 1 } },
-    create: { name: 'PURCHASE_ORDER', value: 1 }
+    create: { tenantId, name: 'PURCHASE_ORDER', value: 1 }
   });
   return `PN${String(seq.value).padStart(6, '0')}`;
 }
@@ -33,12 +33,13 @@ export const purchaseOrderController = {
   // GET /api/purchase-orders
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
       const status = req.query.status as any;
       const search = req.query.search as string;
 
-      const where: any = {};
+      const where: any = { tenantId };
       if (status) where.status = status;
       if (search) {
         where.OR = [
@@ -71,9 +72,10 @@ export const purchaseOrderController = {
   // GET /api/purchase-orders/:id
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const id = Number(req.params.id);
-      const po = await prisma.purchaseOrder.findUnique({
-        where: { id },
+      const po = await prisma.purchaseOrder.findFirst({
+        where: { id, tenantId },
         include: {
           supplier: true,
           items: { include: { product: { select: { id: true, sku: true, name: true } } } },
@@ -89,9 +91,14 @@ export const purchaseOrderController = {
   // POST /api/purchase-orders
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const body = createPurchaseOrderSchema.parse(req.body);
       const po = await prisma.$transaction(async (tx) => {
-        const code = await generatePOCode(tx);
+        // Verify supplier belongs to same tenant
+        const sup = await tx.supplier.findFirst({ where: { id: body.supplierId, tenantId } });
+        if (!sup) throw new Error('Không tìm thấy nhà cung cấp');
+
+        const code = await generatePOCode(tenantId, tx);
         let total = 0;
         const itemsData = body.items.map(item => {
           const itemTotal = item.quantity * item.price;
@@ -114,6 +121,7 @@ export const purchaseOrderController = {
             paid: body.paid,
             note: body.note,
             items: { create: itemsData },
+            tenantId,
           },
           include: {
             items: { include: { product: { select: { id: true, name: true } } } },
@@ -140,8 +148,6 @@ export const purchaseOrderController = {
           
           // Generate Cashbook Entry (EXPENSE) if paid > 0
           if (body.paid > 0) {
-            const supplier = await tx.supplier.findUnique({ where: { id: body.supplierId } });
-            const count = await tx.cashbookEntry.count({ where: { type: 'EXPENSE' } });
             const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
             
             await tx.cashbookEntry.create({
@@ -149,17 +155,18 @@ export const purchaseOrderController = {
                 code: cashbookCode,
                 type: 'EXPENSE',
                 amount: body.paid,
-                category: 'Trả tiền nhà cung cấp', // Trả tiền nhập hàng
+                category: 'Trả tiền nhà cung cấp', 
                 partnerType: 'supplier',
                 supplierId: body.supplierId,
-                partnerName: supplier ? supplier.name : 'Nhà cung cấp',
-                paymentMethod: 'cash', // Or dynamically fetched
+                partnerName: sup.name,
+                paymentMethod: 'cash',
                 isAccounting: true,
                 status: 'completed',
                 branch: 'Chi nhánh trung tâm',
                 userId: req.user!.id,
                 purchaseOrderId: newPO.id,
                 note: `Trả tiền nhập hàng ${code}`,
+                tenantId,
               }
             });
           }
@@ -168,7 +175,7 @@ export const purchaseOrderController = {
         return newPO;
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.status(201).json(po);
     } catch (error) {
       next(error);
@@ -178,11 +185,12 @@ export const purchaseOrderController = {
   // PUT /api/purchase-orders/:id
   update: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const id = Number(req.params.id);
       const { note, received_by, supplierId, items, paid, status } = req.body;
 
-      const oldPO = await prisma.purchaseOrder.findUnique({
-        where: { id },
+      const oldPO = await prisma.purchaseOrder.findFirst({
+        where: { id, tenantId },
         include: { items: true },
       });
       if (!oldPO) return res.status(404).json({ message: 'Không tìm thấy phiếu nhập' });
@@ -219,7 +227,7 @@ export const purchaseOrderController = {
           // Hủy phiếu chi cũ
           if (Number(oldPO.paid) > 0) {
             await tx.cashbookEntry.updateMany({
-              where: { purchaseOrderId: id, status: 'completed' },
+              where: { tenantId, purchaseOrderId: id, status: 'completed' },
               data: { status: 'cancelled', note: 'Hủy thanh toán theo phiếu nhập cập nhật' }
             });
           }
@@ -283,7 +291,7 @@ export const purchaseOrderController = {
           
           // Tạo phiếu chi mới nếu paid > 0
           if (finalPaid > 0) {
-            const supplierObj = await tx.supplier.findUnique({ where: { id: finalSupplierId } });
+            const supplierObj = await tx.supplier.findFirst({ where: { id: finalSupplierId, tenantId } });
             const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
             
             await tx.cashbookEntry.create({
@@ -302,6 +310,7 @@ export const purchaseOrderController = {
                 userId: req.user!.id,
                 purchaseOrderId: id,
                 note: `Trả tiền nhập hàng ${newPO.code} (Cập nhật)`,
+                tenantId,
               }
             });
           }
@@ -310,7 +319,7 @@ export const purchaseOrderController = {
         return newPO;
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.json(po);
     } catch (error) {
       next(error);
@@ -320,9 +329,11 @@ export const purchaseOrderController = {
   // PUT /api/purchase-orders/:id/cancel
   cancel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const id = Number(req.params.id);
-      const po = await prisma.purchaseOrder.findUnique({
-        where: { id },
+      
+      const po = await prisma.purchaseOrder.findFirst({
+        where: { id, tenantId },
         include: { items: true },
       });
 
@@ -354,13 +365,13 @@ export const purchaseOrderController = {
           
           // Also cancel associated cashbook entries
           await tx.cashbookEntry.updateMany({
-            where: { purchaseOrderId: id, status: 'completed' },
+            where: { tenantId, purchaseOrderId: id, status: 'completed' },
             data: { status: 'cancelled', note: 'Hủy theo phiếu nhập hàng bị hủy' }
           });
         }
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.json({ message: 'Đã hủy phiếu nhập' });
     } catch (error) {
       next(error);

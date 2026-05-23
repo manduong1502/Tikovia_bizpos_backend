@@ -20,13 +20,36 @@ const registerSchema = z.object({
   role: z.enum(['ADMIN', 'MANAGER', 'STAFF']).optional(),
 });
 
+const registerTenantSchema = z.object({
+  tenantName: z.string().min(1, 'Tên cửa hàng không được để trống'),
+  subdomain: z.string().min(2, 'Subdomain tối thiểu 2 ký tự').regex(/^[a-z0-9-]+$/, 'Subdomain chỉ gồm chữ thường, số và dấu gạch ngang'),
+  adminUsername: z.string().min(3, 'Tên đăng nhập tối thiểu 3 ký tự'),
+  adminPassword: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
+  adminFullName: z.string().min(1, 'Họ tên không được để trống'),
+  adminEmail: z.string().email('Email không hợp lệ').optional().nullable(),
+});
+
 export const authController = {
   // POST /api/auth/login
   login: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { username, password } = loginSchema.parse(req.body);
+      const tenantId = (req as any).tenant?.id;
 
-      const user = await prisma.user.findUnique({ where: { username } });
+      if (!tenantId) {
+        return res.status(400).json({ message: 'Không xác định được thông tin gian hàng' });
+      }
+
+      // Find user by composite unique constraint (tenantId + username)
+      const user = await prisma.user.findUnique({
+        where: {
+          tenantId_username: {
+            tenantId,
+            username,
+          },
+        },
+      });
+
       if (!user || !user.isActive) {
         return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
       }
@@ -37,7 +60,7 @@ export const authController = {
       }
 
       const token = jwt.sign(
-        { id: user.id, username: user.username, role: user.role },
+        { id: user.id, username: user.username, role: user.role, tenantId: user.tenantId },
         config.jwt.secret,
         { expiresIn: config.jwt.expiresIn as any }
       );
@@ -50,7 +73,9 @@ export const authController = {
           fullName: user.fullName,
           email: user.email,
           role: user.role,
+          tenantId: user.tenantId,
         },
+        tenant: (req as any).tenant,
       });
     } catch (error) {
       next(error);
@@ -61,9 +86,11 @@ export const authController = {
   register: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const data = registerSchema.parse(req.body);
+      const tenantId = req.user!.tenantId;
       
       const existingUser = await prisma.user.findFirst({
         where: {
+          tenantId,
           OR: [
             { username: data.username },
             ...(data.email ? [{ email: data.email }] : []),
@@ -82,6 +109,7 @@ export const authController = {
         data: {
           ...data,
           password: hashedPassword,
+          tenantId,
         },
         select: { id: true, username: true, fullName: true, email: true, role: true },
       });
@@ -92,14 +120,96 @@ export const authController = {
     }
   },
 
+  // POST /api/auth/register-tenant (Public)
+  registerTenant: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = registerTenantSchema.parse(req.body);
+
+      // Check subdomain uniqueness
+      const existingTenant = await prisma.tenant.findUnique({
+        where: { subdomain: body.subdomain },
+      });
+      if (existingTenant) {
+        return res.status(400).json({ message: `Tên miền phụ '${body.subdomain}' đã được sử dụng.` });
+      }
+
+      const tenant = await prisma.$transaction(async (tx) => {
+        // 1. Create Tenant
+        const newTenant = await tx.tenant.create({
+          data: {
+            name: body.tenantName,
+            subdomain: body.subdomain,
+            plan: 'TRIAL',
+          },
+        });
+
+        // 2. Create Admin User
+        const hashedPassword = await bcrypt.hash(body.adminPassword, 12);
+        await tx.user.create({
+          data: {
+            username: body.adminUsername,
+            password: hashedPassword,
+            fullName: body.adminFullName,
+            email: body.adminEmail,
+            role: 'ADMIN',
+            tenantId: newTenant.id,
+          },
+        });
+
+        // 3. Initialize default sequence trackers to avoid race conditions
+        const sequences = ['ORDER', 'RETURN', 'PURCHASE_ORDER', 'PURCHASE_RETURN', 'INVENTORY_CHECK', 'CASHBOOK'];
+        for (const seq of sequences) {
+          await tx.sequenceTracker.create({
+            data: {
+              name: seq,
+              value: 0,
+              tenantId: newTenant.id,
+            },
+          });
+        }
+
+        // 4. Create default Category
+        await tx.category.create({
+          data: {
+            name: 'Hàng hóa chung',
+            note: 'Nhóm hàng mặc định của cửa hàng',
+            tenantId: newTenant.id,
+          },
+        });
+
+        return newTenant;
+      });
+
+      res.status(201).json({
+        message: 'Đăng ký cửa hàng thành công!',
+        tenant,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   // GET /api/auth/me
   me: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const user = await prisma.user.findUnique({
         where: { id: req.user!.id },
-        select: { id: true, username: true, fullName: true, email: true, phone: true, role: true },
+        select: { id: true, username: true, fullName: true, email: true, phone: true, role: true, tenantId: true },
       });
       res.json(user);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // GET /api/auth/tenant
+  getTenant: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenant = (req as any).tenant;
+      if (!tenant) {
+        return res.status(404).json({ message: 'Không tìm thấy thông tin cửa hàng' });
+      }
+      res.json(tenant);
     } catch (error) {
       next(error);
     }

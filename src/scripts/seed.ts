@@ -2,12 +2,49 @@ import { prisma } from '../config/database';
 import bcrypt from 'bcryptjs';
 
 async function main() {
-  console.log('🌱 Seeding database...');
+  console.log('🌱 Seeding database with Multi-Tenancy...');
+
+  // 1. Tạo Tenant mặc định (id: 1) nếu chưa tồn tại
+  let tenant = await prisma.tenant.findUnique({
+    where: { subdomain: 'demo' },
+  });
+
+  if (!tenant) {
+    tenant = await prisma.tenant.create({
+      data: {
+        id: 1,
+        name: 'Cửa hàng Mẫu',
+        subdomain: 'demo',
+        plan: 'STANDARD',
+      },
+    });
+    console.log(`  ✅ Created default Tenant: ${tenant.name} (${tenant.subdomain})`);
+  } else {
+    console.log(`  ✅ Default Tenant already exists: ${tenant.name}`);
+  }
+
+  const tenantId = tenant.id;
+
+  // 2. Tạo default Sequence Trackers
+  const sequences = ['ORDER', 'RETURN', 'PURCHASE_ORDER', 'PURCHASE_RETURN', 'INVENTORY_CHECK', 'CASHBOOK'];
+  for (const seq of sequences) {
+    await prisma.sequenceTracker.upsert({
+      where: { tenantId_name: { tenantId, name: seq } },
+      update: {},
+      create: { tenantId, name: seq, value: 0 }
+    });
+  }
+  console.log(`  ✅ Initialized sequence trackers for tenant`);
 
   // ─── Admin user ───
   const adminPassword = await bcrypt.hash('admin123', 12);
   const admin = await prisma.user.upsert({
-    where: { username: 'admin' },
+    where: {
+      tenantId_username: {
+        tenantId,
+        username: 'admin',
+      },
+    },
     update: {},
     create: {
       username: 'admin',
@@ -15,6 +52,7 @@ async function main() {
       fullName: 'Quản trị viên',
       email: 'admin@tikovia.vn',
       role: 'ADMIN',
+      tenantId,
     },
   });
   console.log(`  ✅ Admin: ${admin.username}`);
@@ -22,7 +60,12 @@ async function main() {
   // ─── Staff user ───
   const staffPassword = await bcrypt.hash('staff123', 12);
   const staff = await prisma.user.upsert({
-    where: { username: 'nhanvien1' },
+    where: {
+      tenantId_username: {
+        tenantId,
+        username: 'nhanvien1',
+      },
+    },
     update: {},
     create: {
       username: 'nhanvien1',
@@ -30,18 +73,30 @@ async function main() {
       fullName: 'Nguyễn Văn A',
       phone: '0901234567',
       role: 'STAFF',
+      tenantId,
     },
   });
   console.log(`  ✅ Staff: ${staff.username}`);
 
   // ─── Categories ───
-  const categories = await Promise.all([
-    prisma.category.upsert({ where: { name: 'Đồ uống' }, update: {}, create: { name: 'Đồ uống' } }),
-    prisma.category.upsert({ where: { name: 'Thực phẩm' }, update: {}, create: { name: 'Thực phẩm' } }),
-    prisma.category.upsert({ where: { name: 'Gia dụng' }, update: {}, create: { name: 'Gia dụng' } }),
-    prisma.category.upsert({ where: { name: 'Điện tử' }, update: {}, create: { name: 'Điện tử' } }),
-    prisma.category.upsert({ where: { name: 'Văn phòng phẩm' }, update: {}, create: { name: 'Văn phòng phẩm' } }),
-  ]);
+  const categoryNames = ['Đồ uống', 'Thực phẩm', 'Gia dụng', 'Điện tử', 'Văn phòng phẩm'];
+  const categories = await Promise.all(
+    categoryNames.map(name =>
+      prisma.category.upsert({
+        where: {
+          tenantId_name: {
+            tenantId,
+            name,
+          },
+        },
+        update: {},
+        create: {
+          name,
+          tenantId,
+        },
+      })
+    )
+  );
   console.log(`  ✅ ${categories.length} nhóm hàng`);
 
   // ─── Products ───
@@ -60,9 +115,17 @@ async function main() {
 
   for (const p of sampleProducts) {
     await prisma.product.upsert({
-      where: { sku: p.sku },
+      where: {
+        tenantId_sku: {
+          tenantId,
+          sku: p.sku,
+        },
+      },
       update: {},
-      create: p,
+      create: {
+        ...p,
+        tenantId,
+      },
     });
   }
   console.log(`  ✅ ${sampleProducts.length} sản phẩm`);
@@ -74,7 +137,19 @@ async function main() {
     { code: 'KH003', name: 'Phạm Thị D', phone: '0934567890', address: 'Q.7, TP.HCM' },
   ];
   for (const c of customers) {
-    await prisma.customer.upsert({ where: { code: c.code }, update: {}, create: c });
+    await prisma.customer.upsert({
+      where: {
+        tenantId_code: {
+          tenantId,
+          code: c.code,
+        },
+      },
+      update: {},
+      create: {
+        ...c,
+        tenantId,
+      },
+    });
   }
   console.log(`  ✅ ${customers.length} khách hàng`);
 
@@ -84,12 +159,24 @@ async function main() {
     { code: 'NCC002', name: 'Đại lý XYZ', phone: '0282345678', address: 'Q.Tân Phú, TP.HCM' },
   ];
   for (const s of suppliers) {
-    await prisma.supplier.upsert({ where: { code: s.code }, update: {}, create: s });
+    await prisma.supplier.upsert({
+      where: {
+        tenantId_code: {
+          tenantId,
+          code: s.code,
+        },
+      },
+      update: {},
+      create: {
+        ...s,
+        tenantId,
+      },
+    });
   }
   console.log(`  ✅ ${suppliers.length} nhà cung cấp`);
 
   console.log('\n🎉 Seed completed!\n');
-  console.log('📝 Tài khoản đăng nhập:');
+  console.log('📝 Tài khoản đăng nhập (Gian hàng: demo):');
   console.log('   Admin:    admin / admin123');
   console.log('   Nhân viên: nhanvien1 / staff123');
 }

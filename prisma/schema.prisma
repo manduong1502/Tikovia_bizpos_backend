@@ -11,11 +11,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Đơn vị thuê bao (Cửa hàng / Doanh nghiệp) ───
+model Tenant {
+  id        Int      @id @default(autoincrement())
+  name      String   // Tên cửa hàng
+  subdomain String   @unique // Subdomain định danh (vd: "demo", "vietstore")
+  plan      String   @default("TRIAL") // TRIAL, STANDARD, PRO
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  categories       Category[]
+  products         Product[]
+  brands           Brand[]
+  customers        Customer[]
+  suppliers        Supplier[]
+  orders           Order[]
+  returns          Return[]
+  purchaseOrders   PurchaseOrder[]
+  purchaseReturns  PurchaseReturn[]
+  inventoryChecks  InventoryCheck[]
+  cashbookEntries  CashbookEntry[]
+  sequenceTrackers SequenceTracker[]
+  cashbookPartners CashbookPartner[]
+}
+
 // ─── Người dùng / Nhân viên ───
 model User {
   id        Int      @id @default(autoincrement())
-  username  String   @unique
-  email     String?  @unique
+  tenantId  Int
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  username  String
+  email     String?
   password  String
   fullName  String
   phone     String?
@@ -28,6 +56,8 @@ model User {
   cashbookEntries CashbookEntry[]
   inventoryChecks InventoryCheck[] @relation("UserInventoryChecks")
 
+  @@unique([tenantId, username])
+  @@unique([tenantId, email])
   @@index([username])
   @@index([email])
 }
@@ -41,7 +71,9 @@ enum Role {
 // ─── Nhóm hàng ───
 model Category {
   id        Int        @id @default(autoincrement())
-  name      String     @unique
+  tenantId  Int
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
   note      String?
   parentId  Int?
   parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
@@ -51,6 +83,7 @@ model Category {
 
   products Product[]
 
+  @@unique([tenantId, name])
   @@index([name])
   @@index([parentId])
 }
@@ -58,9 +91,11 @@ model Category {
 // ─── Hàng hóa ───
 model Product {
   id          Int      @id @default(autoincrement())
-  sku         String   @unique        // Mã hàng
-  name        String                  // Tên hàng
-  barcode     String?  @unique        // Mã vạch
+  tenantId    Int
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sku         String   // Mã hàng
+  name        String   // Tên hàng
+  barcode     String?  // Mã vạch
   categoryId  Int?
   category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   brandId     Int?
@@ -90,6 +125,8 @@ model Product {
   purchaseReturnItems PurchaseReturnItem[]
   inventoryCheckItems InventoryCheckItem[]
 
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
   @@index([sku])
   @@index([barcode])
   @@index([name])
@@ -102,16 +139,22 @@ model Product {
 // ─── Thương hiệu ───
 model Brand {
   id        Int       @id @default(autoincrement())
-  name      String    @unique
+  tenantId  Int
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
   products  Product[]
+
+  @@unique([tenantId, name])
 }
 
 // ─── Khách hàng ───
 model Customer {
   id              Int      @id @default(autoincrement())
-  code            String   @unique        // Mã KH
+  tenantId        Int
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code            String   // Mã KH
   name            String
-  phone           String?  @unique
+  phone           String?
   email           String?
   address         String?
   note            String?
@@ -130,6 +173,8 @@ model Customer {
   returns Return[]
   cashbookEntries CashbookEntry[]
 
+  @@unique([tenantId, code])
+  @@unique([tenantId, phone])
   @@index([code])
   @@index([phone])
   @@index([name])
@@ -138,7 +183,9 @@ model Customer {
 // ─── Nhà cung cấp ───
 model Supplier {
   id          Int      @id @default(autoincrement())
-  code        String   @unique
+  tenantId    Int
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code        String
   name        String
   phone       String?
   email       String?
@@ -156,6 +203,7 @@ model Supplier {
   products       Product[]
   cashbookEntries CashbookEntry[]
 
+  @@unique([tenantId, code])
   @@index([code])
   @@index([name])
 }
@@ -163,7 +211,9 @@ model Supplier {
 // ─── Đơn hàng (Bán hàng) ───
 model Order {
   id            Int         @id @default(autoincrement())
-  code          String      @unique   // Mã đơn: HD000001
+  tenantId      Int
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code          String      // Mã đơn: HD000001
   customerId    Int?
   customer      Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   userId        Int
@@ -185,6 +235,7 @@ model Order {
   returns Return[]
   cashbookEntries CashbookEntry[]
 
+  @@unique([tenantId, code])
   @@index([code])
   @@index([customerId])
   @@index([userId])
@@ -225,7 +276,9 @@ model OrderItem {
 // ─── Trả hàng ───
 model Return {
   id         Int          @id @default(autoincrement())
-  code       String       @unique
+  tenantId   Int
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code       String
   orderId    Int?
   order      Order?       @relation(fields: [orderId], references: [id])
   customerId Int?
@@ -240,6 +293,7 @@ model Return {
   items ReturnItem[]
   cashbookEntries CashbookEntry[]
 
+  @@unique([tenantId, code])
   @@index([code])
   @@index([orderId])
   @@index([createdAt])
@@ -268,7 +322,9 @@ model ReturnItem {
 // ─── Nhập hàng (Mua hàng) ───
 model PurchaseOrder {
   id         Int                 @id @default(autoincrement())
-  code       String              @unique
+  tenantId   Int
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code       String              // PN000001
   supplierId Int
   supplier   Supplier            @relation(fields: [supplierId], references: [id])
   status     PurchaseOrderStatus @default(PENDING)
@@ -282,6 +338,7 @@ model PurchaseOrder {
   purchaseReturns PurchaseReturn[]
   cashbookEntries CashbookEntry[]
 
+  @@unique([tenantId, code])
   @@index([code])
   @@index([supplierId])
   @@index([createdAt])
@@ -310,7 +367,9 @@ model PurchaseOrderItem {
 // ─── Trả hàng nhập (Purchase Returns) ───
 model PurchaseReturn {
   id              Int                  @id @default(autoincrement())
-  code            String               @unique // THN000001
+  tenantId        Int
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code            String               // THN000001
   purchaseOrderId Int?
   purchaseOrder   PurchaseOrder?       @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
   supplierId      Int
@@ -327,6 +386,7 @@ model PurchaseReturn {
 
   items PurchaseReturnItem[]
 
+  @@unique([tenantId, code])
   @@index([code])
   @@index([purchaseOrderId])
   @@index([supplierId])
@@ -359,7 +419,9 @@ model PurchaseReturnItem {
 // ─── Kiểm kho ───
 model InventoryCheck {
   id            Int      @id @default(autoincrement())
-  code          String   @unique
+  tenantId      Int
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code          String   // KK000001
   userId        Int?
   user          User?    @relation("UserInventoryChecks", fields: [userId], references: [id])
   status        String   @default("COMPLETED") // PENDING, COMPLETED, CANCELLED
@@ -369,6 +431,7 @@ model InventoryCheck {
 
   items InventoryCheckItem[]
 
+  @@unique([tenantId, code])
   @@index([code])
   @@index([createdAt])
 }
@@ -391,7 +454,9 @@ model InventoryCheckItem {
 // ─── Sổ quỹ ───
 model CashbookEntry {
   id             Int            @id @default(autoincrement())
-  code           String         @unique
+  tenantId       Int
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code           String         // TTM000001
   type           CashbookType
   amount         Decimal        @db.Decimal(15, 2)
   description    String?
@@ -426,6 +491,7 @@ model CashbookEntry {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
+  @@unique([tenantId, code])
   @@index([type])
   @@index([createdAt])
   @@index([userId])
@@ -443,6 +509,8 @@ enum CashbookType {
 
 model CashbookPartner {
   id        Int      @id @default(autoincrement())
+  tenantId  Int
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name      String   // Tên người nhận/nộp
   phone     String?  // Điện thoại
   address   String?  // Địa chỉ
@@ -451,12 +519,18 @@ model CashbookPartner {
   note      String?  // Ghi chú
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, name])
 }
 
 // ─── Sequence Tracker (Tạo mã tăng tự động chống Race Condition) ───
 model SequenceTracker {
   id        Int      @id @default(autoincrement())
-  name      String   @unique // e.g. "ORDER", "PURCHASE_ORDER", "INVENTORY_CHECK", "CASHBOOK"
+  tenantId  Int
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String   // e.g. "ORDER", "PURCHASE_ORDER", "INVENTORY_CHECK", "CASHBOOK"
   value     Int      @default(0)
   updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, name])
 }

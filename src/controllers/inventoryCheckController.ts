@@ -14,13 +14,13 @@ const createInventoryCheckSchema = z.object({
   items: z.array(checkItemSchema).min(1, 'Phải có ít nhất 1 sản phẩm để kiểm kho'),
 });
 
-// Auto-generate code using SequenceTracker to avoid race conditions
-async function generateCheckCode(txClient?: any): Promise<string> {
+// Auto-generate code using SequenceTracker scoped by tenantId
+async function generateCheckCode(tenantId: number, txClient?: any): Promise<string> {
   const db = txClient || prisma;
   const seq = await db.sequenceTracker.upsert({
-    where: { name: 'INVENTORY_CHECK' },
+    where: { tenantId_name: { tenantId, name: 'INVENTORY_CHECK' } },
     update: { value: { increment: 1 } },
-    create: { name: 'INVENTORY_CHECK', value: 1 }
+    create: { tenantId, name: 'INVENTORY_CHECK', value: 1 }
   });
   return `KK${String(seq.value).padStart(6, '0')}`;
 }
@@ -29,11 +29,12 @@ export const inventoryCheckController = {
   // GET /api/inventory-checks
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
       const search = req.query.search as string;
 
-      const where: any = {};
+      const where: any = { tenantId };
       if (search) {
         where.OR = [
           { code: { contains: search, mode: 'insensitive' } },
@@ -63,25 +64,27 @@ export const inventoryCheckController = {
   // POST /api/inventory-checks (Batch create)
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const body = createInventoryCheckSchema.parse(req.body);
       
       const results = await prisma.$transaction(async (tx) => {
-        const code = await generateCheckCode(tx);
+        const code = await generateCheckCode(tenantId, tx);
         
         const newCheck = await tx.inventoryCheck.create({
           data: {
             code,
             userId: req.user!.id,
             status: 'COMPLETED',
+            tenantId,
           }
         });
 
         const itemsToCreate = [];
 
         for (const item of body.items) {
-          // Get current system qty
-          const product = await tx.product.findUnique({
-            where: { id: item.productId },
+          // Get current system qty scoped to tenant
+          const product = await tx.product.findFirst({
+            where: { id: item.productId, tenantId },
             select: { stock: true }
           });
 
@@ -112,13 +115,13 @@ export const inventoryCheckController = {
           });
         }
 
-      return await tx.inventoryCheck.findUnique({
+        return await tx.inventoryCheck.findUnique({
           where: { id: newCheck.id },
           include: { items: true }
         });
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.status(201).json(results);
     } catch (error) {
       next(error);

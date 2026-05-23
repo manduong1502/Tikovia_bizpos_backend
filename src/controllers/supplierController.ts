@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
+import { AuthRequest } from '../middlewares/auth';
 
 function parseExcelDate(val: any): Date | null {
   if (!val) return null;
@@ -31,14 +32,16 @@ function parseExcelDate(val: any): Date | null {
 export const supplierController = {
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const suppliers = await prisma.supplier.findMany({
+        where: { tenantId },
         orderBy: { createdAt: 'desc' },
         include: {
           purchaseOrders: {
-            where: { status: 'COMPLETED' }
+            where: { tenantId, status: 'COMPLETED' }
           },
           purchaseReturns: {
-            where: { status: 'COMPLETED' }
+            where: { tenantId, status: 'COMPLETED' }
           }
         }
       });
@@ -72,12 +75,15 @@ export const supplierController = {
     }
   },
 
-  create: async (req: Request, res: Response, next: NextFunction) => {
+  create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const data = { ...req.body };
       if (!data.name || data.name.trim() === '') return res.status(400).json({ message: 'Tên nhà cung cấp không được trống' });
       
-      const existingName = await prisma.supplier.findFirst({ where: { name: data.name } });
+      const existingName = await prisma.supplier.findFirst({
+        where: { tenantId, name: data.name }
+      });
       if (existingName) return res.status(400).json({ message: 'Tên nhà cung cấp đã tồn tại' });
       
       const totalSpent = Number(data.total_spent || data.totalSpent || 0);
@@ -96,6 +102,7 @@ export const supplierController = {
         isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
         createdBy: data.created_by || data.createdBy || 'Admin',
         createdAt: data.created_at ? new Date(data.created_at) : new Date(),
+        tenantId,
       };
 
       const supplier = await prisma.supplier.create({ data: supplierData });
@@ -116,12 +123,20 @@ export const supplierController = {
     }
   },
 
-  update: async (req: Request, res: Response, next: NextFunction) => {
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const data = { ...req.body };
       
+      const existingSupplier = await prisma.supplier.findFirst({
+        where: { id: Number(req.params.id), tenantId }
+      });
+      if (!existingSupplier) return res.status(404).json({ message: 'Không tìm thấy nhà cung cấp' });
+
       if (data.name) {
-        const existingName = await prisma.supplier.findFirst({ where: { name: data.name, id: { not: Number(req.params.id) } } });
+        const existingName = await prisma.supplier.findFirst({
+          where: { tenantId, name: data.name, id: { not: Number(req.params.id) } }
+        });
         if (existingName) return res.status(400).json({ message: 'Tên nhà cung cấp đã tồn tại' });
       }
 
@@ -163,8 +178,15 @@ export const supplierController = {
     }
   },
 
-  delete: async (req: Request, res: Response, next: NextFunction) => {
+  delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
+
+      const existingSupplier = await prisma.supplier.findFirst({
+        where: { id: Number(req.params.id), tenantId }
+      });
+      if (!existingSupplier) return res.status(404).json({ message: 'Không tìm thấy nhà cung cấp' });
+
       await prisma.supplier.delete({ where: { id: Number(req.params.id) } });
       res.json({ message: 'Đã xóa nhà cung cấp' });
     } catch (error) {
@@ -172,9 +194,10 @@ export const supplierController = {
     }
   },
 
-  importExcel: async (req: Request, res: Response, next: NextFunction) => {
+  importExcel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const items = req.body.items || [];
+      const tenantId = req.user!.tenantId;
       let importedCount = 0;
 
       await prisma.$transaction(async (tx) => {
@@ -196,10 +219,17 @@ export const supplierController = {
             createdAt: item.createdAt ? parseExcelDate(item.createdAt) || new Date() : new Date(),
           };
 
-          const ex = await tx.supplier.findUnique({ where: { code } });
+          const ex = await tx.supplier.findUnique({
+            where: {
+              tenantId_code: {
+                tenantId,
+                code,
+              },
+            },
+          });
           if (ex) {
             await tx.supplier.update({
-              where: { code },
+              where: { id: ex.id },
               data: supplierData,
             });
           } else {
@@ -207,6 +237,7 @@ export const supplierController = {
               data: {
                 code,
                 ...supplierData,
+                tenantId,
               },
             });
           }

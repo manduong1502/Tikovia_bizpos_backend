@@ -19,13 +19,13 @@ const createReturnSchema = z.object({
   paid: z.number().min(0).default(0), // Tiền thực tế trả khách
 });
 
-// Auto-generate code using SequenceTracker to avoid race conditions
-async function generateReturnCode(txClient?: any): Promise<string> {
+// Auto-generate return code using SequenceTracker scoped by tenantId
+async function generateReturnCode(tenantId: number, txClient?: any): Promise<string> {
   const db = txClient || prisma;
   const seq = await db.sequenceTracker.upsert({
-    where: { name: 'RETURN' },
+    where: { tenantId_name: { tenantId, name: 'RETURN' } },
     update: { value: { increment: 1 } },
-    create: { name: 'RETURN', value: 1 }
+    create: { tenantId, name: 'RETURN', value: 1 }
   });
   return `TH${String(seq.value).padStart(6, '0')}`;
 }
@@ -34,11 +34,12 @@ export const returnController = {
   // GET /api/returns
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
       const search = req.query.search as string;
 
-      const where: any = {};
+      const where: any = { tenantId };
       if (search) {
         where.OR = [
           { code: { contains: search, mode: 'insensitive' } },
@@ -70,9 +71,10 @@ export const returnController = {
   // GET /api/returns/:id
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const id = Number(req.params.id);
-      const returnDoc = await prisma.return.findUnique({
-        where: { id },
+      const returnDoc = await prisma.return.findFirst({
+        where: { id, tenantId },
         include: {
           customer: true,
           order: { select: { id: true, code: true } },
@@ -89,9 +91,16 @@ export const returnController = {
   // POST /api/returns
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const body = createReturnSchema.parse(req.body);
       const returnDoc = await prisma.$transaction(async (tx) => {
-        const code = await generateReturnCode(tx);
+        // Verify order exists in the same tenant if provided
+        if (body.orderId) {
+          const ord = await tx.order.findFirst({ where: { id: body.orderId, tenantId } });
+          if (!ord) throw new Error('Không tìm thấy hóa đơn liên kết');
+        }
+
+        const code = await generateReturnCode(tenantId, tx);
         let total = 0;
         const itemsData = body.items.map(item => {
           const itemTotal = item.quantity * item.price;
@@ -115,6 +124,7 @@ export const returnController = {
             reason: body.reason,
             status: 'COMPLETED',
             items: { create: itemsData },
+            tenantId,
           },
           include: {
             items: { include: { product: { select: { id: true, name: true } } } },
@@ -137,7 +147,7 @@ export const returnController = {
             data: { totalSpent: { decrement: total } },
           });
 
-          // nợ giảm = (tổng hàng trả - phí trả hàng) - tiền thực tế trả khách
+          // nợ giảm = (tổng tiền hàng trả - phí trả hàng) - tiền thực tế trả khách
           const netRefund = total - body.discount;
           const debtReduction = netRefund - body.paid;
           if (debtReduction !== 0) {
@@ -150,7 +160,7 @@ export const returnController = {
 
         // Tạo phiếu chi sổ quỹ nếu thực tế có trả lại tiền mặt/chuyển khoản cho khách
         if (body.paid > 0) {
-          const customerObj = body.customerId ? await tx.customer.findUnique({ where: { id: body.customerId } }) : null;
+          const customerObj = body.customerId ? await tx.customer.findFirst({ where: { id: body.customerId, tenantId } }) : null;
           const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
           
           await tx.cashbookEntry.create({
@@ -169,6 +179,7 @@ export const returnController = {
               userId: req.user!.id,
               returnId: newReturn.id,
               note: `Chi trả khách trả hàng (Phiếu trả ${code})`,
+              tenantId,
             }
           });
         }
@@ -176,7 +187,7 @@ export const returnController = {
         return newReturn;
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.status(201).json(returnDoc);
     } catch (error) {
       next(error);

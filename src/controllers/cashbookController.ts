@@ -5,6 +5,7 @@ import { AuthRequest } from '../middlewares/auth';
 export const cashbookController = {
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const search = req.query.search as string;
       const type = req.query.type as string; // 'thu', 'chi', 'INCOME', 'EXPENSE'
       const paymentMethod = req.query.paymentMethod as string;
@@ -15,7 +16,7 @@ export const cashbookController = {
       const from = req.query.from as string;
       const to = req.query.to as string;
 
-      const where: any = {};
+      const where: any = { tenantId };
 
       if (from || to) {
         where.createdAt = {};
@@ -73,6 +74,7 @@ export const cashbookController = {
 
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const {
         type, // 'thu' (INCOME) or 'chi' (EXPENSE)
         amount,
@@ -93,9 +95,9 @@ export const cashbookController = {
       const typeEnum = (type === 'thu' || type === 'INCOME') ? 'INCOME' : 'EXPENSE';
       const prefix = typeEnum === 'INCOME' ? 'TTM' : 'TCM';
 
-      // Auto-generate unique code
+      // Auto-generate unique code per tenant
       const count = await prisma.cashbookEntry.count({
-        where: { type: typeEnum },
+        where: { tenantId, type: typeEnum },
       });
       const code = `${prefix}${String(count + 1).padStart(6, '0')}`;
 
@@ -118,6 +120,7 @@ export const cashbookController = {
           userId: req.user!.id,
           customerId: customerId ? Number(customerId) : null,
           supplierId: supplierId ? Number(supplierId) : null,
+          tenantId,
         },
         include: { user: { select: { id: true, fullName: true } } },
       });
@@ -130,7 +133,14 @@ export const cashbookController = {
 
   cancel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const id = Number(req.params.id);
+
+      const existingEntry = await prisma.cashbookEntry.findFirst({
+        where: { id, tenantId }
+      });
+      if (!existingEntry) return res.status(404).json({ message: 'Không tìm thấy phiếu quỹ' });
+
       const entry = await prisma.cashbookEntry.update({
         where: { id },
         data: { status: 'cancelled' },
@@ -142,10 +152,11 @@ export const cashbookController = {
   },
 
   // Custom Cashbook Partners (người nộp/nhận tự tạo)
-  getPartners: async (req: Request, res: Response, next: NextFunction) => {
+  getPartners: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const search = req.query.search as string;
-      const where: any = {};
+      const where: any = { tenantId };
       if (search) {
         where.OR = [
           { name: { contains: search, mode: 'insensitive' } },
@@ -162,12 +173,26 @@ export const cashbookController = {
     }
   },
 
-  createPartner: async (req: Request, res: Response, next: NextFunction) => {
+  createPartner: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const { name, phone, address, province, ward, note } = req.body;
       if (!name) {
         return res.status(400).json({ message: 'Tên đối tượng nhận/nộp là bắt buộc' });
       }
+
+      const existing = await prisma.cashbookPartner.findUnique({
+        where: {
+          tenantId_name: {
+            tenantId,
+            name,
+          }
+        }
+      });
+      if (existing) {
+        return res.status(400).json({ message: 'Đối tượng nhận/nộp đã tồn tại' });
+      }
+
       const partner = await prisma.cashbookPartner.create({
         data: {
           name,
@@ -176,6 +201,7 @@ export const cashbookController = {
           province: province || null,
           ward: ward || null,
           note: note || null,
+          tenantId,
         },
       });
       res.status(201).json(partner);

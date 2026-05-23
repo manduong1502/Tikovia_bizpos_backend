@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { config } from '../config';
+import { AuthRequest } from '../middlewares/auth';
 
 const customerSchema = z.object({
   code: z.preprocess((val) => val === null || val === '' ? undefined : val, z.string().optional()),
@@ -58,6 +59,7 @@ function parseExcelDate(val: any): Date | null {
 export const customerController = {
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const page = Math.max(1, parseInt(req.query.page as string) || config.pagination.defaultPage);
       const limit = Math.min(config.pagination.maxLimit, parseInt(req.query.limit as string) || config.pagination.defaultLimit);
       const search = (req.query.search as string) || '';
@@ -66,7 +68,7 @@ export const customerController = {
       const note = (req.query.note as string) || '';
       const orderCode = (req.query.orderCode as string) || '';
 
-      const where: any = {};
+      const where: any = { tenantId };
       const andConditions: any[] = [];
 
       if (search) {
@@ -136,8 +138,9 @@ export const customerController = {
 
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const customer = await prisma.customer.findUnique({
-        where: { id: Number(req.params.id) },
+      const tenantId = (req as any).tenant!.id;
+      const customer = await prisma.customer.findFirst({
+        where: { id: Number(req.params.id), tenantId },
         include: { orders: { take: 10, orderBy: { createdAt: 'desc' } } },
       });
       if (!customer) return res.status(404).json({ message: 'Không tìm thấy khách hàng' });
@@ -147,15 +150,18 @@ export const customerController = {
     }
   },
 
-  create: async (req: Request, res: Response, next: NextFunction) => {
+  create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const bodyData = { ...req.body };
       if (bodyData.debt !== undefined && bodyData.totalDebt === undefined) {
         bodyData.totalDebt = Number(bodyData.debt);
       }
       const parsed = customerSchema.parse(bodyData);
       
-      const existingName = await prisma.customer.findFirst({ where: { name: parsed.name } });
+      const existingName = await prisma.customer.findFirst({
+        where: { tenantId, name: parsed.name }
+      });
       if (existingName) return res.status(400).json({ message: 'Tên khách hàng đã tồn tại' });
       
       const code = parsed.code && parsed.code.trim() !== '' ? parsed.code.trim() : `KH${Math.floor(100000 + Math.random() * 900000)}`;
@@ -163,6 +169,7 @@ export const customerController = {
         data: {
           ...parsed,
           code,
+          tenantId,
         }
       });
       res.status(201).json(customer);
@@ -171,16 +178,24 @@ export const customerController = {
     }
   },
 
-  update: async (req: Request, res: Response, next: NextFunction) => {
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const bodyData = { ...req.body };
       if (bodyData.debt !== undefined && bodyData.totalDebt === undefined) {
         bodyData.totalDebt = Number(bodyData.debt);
       }
       const data = customerSchema.partial().parse(bodyData);
       
+      const existingCustomer = await prisma.customer.findFirst({
+        where: { id: Number(req.params.id), tenantId }
+      });
+      if (!existingCustomer) return res.status(404).json({ message: 'Không tìm thấy khách hàng' });
+
       if (data.name) {
-        const existingName = await prisma.customer.findFirst({ where: { name: data.name, id: { not: Number(req.params.id) } } });
+        const existingName = await prisma.customer.findFirst({
+          where: { tenantId, name: data.name, id: { not: Number(req.params.id) } }
+        });
         if (existingName) return res.status(400).json({ message: 'Tên khách hàng đã tồn tại' });
       }
 
@@ -194,8 +209,15 @@ export const customerController = {
     }
   },
 
-  delete: async (req: Request, res: Response, next: NextFunction) => {
+  delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
+      
+      const existingCustomer = await prisma.customer.findFirst({
+        where: { id: Number(req.params.id), tenantId }
+      });
+      if (!existingCustomer) return res.status(404).json({ message: 'Không tìm thấy khách hàng' });
+
       await prisma.customer.delete({ where: { id: Number(req.params.id) } });
       res.json({ message: 'Đã xóa khách hàng' });
     } catch (error) {
@@ -203,9 +225,10 @@ export const customerController = {
     }
   },
 
-  importExcel: async (req: Request, res: Response, next: NextFunction) => {
+  importExcel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const items = req.body.items;
+      const tenantId = req.user!.tenantId;
       let importedCount = 0;
 
       await prisma.$transaction(async (tx) => {
@@ -228,10 +251,17 @@ export const customerController = {
             createdAt: parseExcelDate(item.createdAt) || new Date(),
           };
 
-          const ex = await tx.customer.findUnique({ where: { code } });
+          const ex = await tx.customer.findUnique({
+            where: {
+              tenantId_code: {
+                tenantId,
+                code,
+              },
+            },
+          });
           if (ex) {
             await tx.customer.update({
-              where: { code },
+              where: { id: ex.id },
               data: customerData,
             });
           } else {
@@ -239,6 +269,7 @@ export const customerController = {
               data: {
                 code,
                 ...customerData,
+                tenantId,
               },
             });
           }

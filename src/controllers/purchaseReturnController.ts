@@ -25,12 +25,13 @@ const createPurchaseReturnSchema = z.object({
   createdBy: z.string().optional().nullable(),
 });
 
-async function generatePurchaseReturnCode(txClient?: any): Promise<string> {
+// Auto-generate code using SequenceTracker scoped by tenantId
+async function generatePurchaseReturnCode(tenantId: number, txClient?: any): Promise<string> {
   const db = txClient || prisma;
   const seq = await db.sequenceTracker.upsert({
-    where: { name: 'PURCHASE_RETURN' },
+    where: { tenantId_name: { tenantId, name: 'PURCHASE_RETURN' } },
     update: { value: { increment: 1 } },
-    create: { name: 'PURCHASE_RETURN', value: 1 }
+    create: { tenantId, name: 'PURCHASE_RETURN', value: 1 }
   });
   return `THN${String(seq.value).padStart(6, '0')}`;
 }
@@ -39,6 +40,7 @@ export const purchaseReturnController = {
   // GET /api/purchase-returns
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(500, parseInt(req.query.limit as string) || 20);
       const search = req.query.search as string;
@@ -46,7 +48,7 @@ export const purchaseReturnController = {
       const createdBy = req.query.createdBy as string;
       const receivedBy = req.query.receivedBy as string;
 
-      const where: any = {};
+      const where: any = { tenantId };
       if (status) where.status = status;
       if (createdBy) where.createdBy = createdBy;
       if (receivedBy) where.receivedBy = receivedBy;
@@ -84,9 +86,10 @@ export const purchaseReturnController = {
   // GET /api/purchase-returns/:id
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const id = Number(req.params.id);
-      const pr = await prisma.purchaseReturn.findUnique({
-        where: { id },
+      const pr = await prisma.purchaseReturn.findFirst({
+        where: { id, tenantId },
         include: {
           supplier: true,
           purchaseOrder: true,
@@ -103,9 +106,19 @@ export const purchaseReturnController = {
   // POST /api/purchase-returns
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const body = createPurchaseReturnSchema.parse(req.body);
       const pr = await prisma.$transaction(async (tx) => {
-        const code = await generatePurchaseReturnCode(tx);
+        // Verify supplier and PO belong to same tenant
+        const sup = await tx.supplier.findFirst({ where: { id: body.supplierId, tenantId } });
+        if (!sup) throw new Error('Không tìm thấy nhà cung cấp');
+
+        if (body.purchaseOrderId) {
+          const po = await tx.purchaseOrder.findFirst({ where: { id: body.purchaseOrderId, tenantId } });
+          if (!po) throw new Error('Không tìm thấy phiếu nhập liên kết');
+        }
+
+        const code = await generatePurchaseReturnCode(tenantId, tx);
         let total = 0;
         const itemsData = body.items.map(item => {
           const itemTotal = item.quantity * item.returnPrice;
@@ -134,6 +147,7 @@ export const purchaseReturnController = {
             receivedBy: body.receivedBy,
             createdBy: body.createdBy || req.user?.username || 'Võ Thành Huy',
             items: { create: itemsData },
+            tenantId,
           },
           include: {
             items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
@@ -160,7 +174,6 @@ export const purchaseReturnController = {
           }
 
           if (body.paid > 0) {
-            const supplier = await tx.supplier.findUnique({ where: { id: body.supplierId } });
             const cashbookCode = `PTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
             
             await tx.cashbookEntry.create({
@@ -171,7 +184,7 @@ export const purchaseReturnController = {
                 category: 'Thu tiền trả hàng', 
                 partnerType: 'supplier',
                 supplierId: body.supplierId,
-                partnerName: supplier ? supplier.name : 'Nhà cung cấp',
+                partnerName: sup.name,
                 paymentMethod: 'cash',
                 isAccounting: true,
                 status: 'completed',
@@ -179,6 +192,7 @@ export const purchaseReturnController = {
                 userId: req.user!.id,
                 purchaseOrderId: body.purchaseOrderId || null,
                 note: `Thu tiền nhà cung cấp trả lại (Phiếu ${code})`,
+                tenantId,
               }
             });
           }
@@ -187,7 +201,7 @@ export const purchaseReturnController = {
         return newPR;
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.status(201).json(pr);
     } catch (error) {
       next(error);

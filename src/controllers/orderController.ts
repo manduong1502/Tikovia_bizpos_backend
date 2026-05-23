@@ -20,13 +20,13 @@ const createOrderSchema = z.object({
   note: z.string().optional().nullable(),
 });
 
-// Auto-generate order code using SequenceTracker to avoid race conditions
-async function generateOrderCode(txClient?: any): Promise<string> {
+// Auto-generate order code using SequenceTracker scoped by tenantId
+async function generateOrderCode(tenantId: number, txClient?: any): Promise<string> {
   const db = txClient || prisma;
   const seq = await db.sequenceTracker.upsert({
-    where: { name: 'ORDER' },
+    where: { tenantId_name: { tenantId, name: 'ORDER' } },
     update: { value: { increment: 1 } },
-    create: { name: 'ORDER', value: 1 }
+    create: { tenantId, name: 'ORDER', value: 1 }
   });
   return `HD${String(seq.value).padStart(6, '0')}`;
 }
@@ -62,6 +62,7 @@ export const orderController = {
   // GET /api/orders — phân trang + lọc
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
       const status = req.query.status as string;
@@ -69,7 +70,7 @@ export const orderController = {
       const to = req.query.to as string;
       const search = req.query.search as string;
 
-      const where: any = {};
+      const where: any = { tenantId };
       if (status) where.status = status;
       if (from || to) {
         where.createdAt = {};
@@ -108,8 +109,9 @@ export const orderController = {
   // GET /api/orders/:id
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const order = await prisma.order.findUnique({
-        where: { id: Number(req.params.id) },
+      const tenantId = (req as any).tenant!.id;
+      const order = await prisma.order.findFirst({
+        where: { id: Number(req.params.id), tenantId },
         include: {
           customer: true,
           user: { select: { id: true, fullName: true } },
@@ -123,10 +125,12 @@ export const orderController = {
     }
   },
 
-  // POST /api/orders — tạo đơn hàng mới (Transaction để đảm bảo data consistency)
+  // POST /api/orders
   create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const body = createOrderSchema.parse(req.body);
+      
       const order = await prisma.$transaction(async (tx) => {
         // Calculate totals
         let subtotal = 0;
@@ -146,12 +150,14 @@ export const orderController = {
         let customerName = 'Khách lẻ';
 
         if (body.customerId) {
-          const cust = await tx.customer.findUnique({ where: { id: body.customerId } });
+          const cust = await tx.customer.findFirst({
+            where: { id: body.customerId, tenantId }
+          });
           if (cust) customerName = cust.name;
         }
 
         // Create order
-        const code = await generateOrderCode(tx);
+        const code = await generateOrderCode(tenantId, tx);
         const newOrder = await tx.order.create({
           data: {
             code,
@@ -165,6 +171,7 @@ export const orderController = {
             note: body.note,
             status: 'COMPLETED',
             items: { create: itemsData },
+            tenantId,
           },
           include: {
             items: { include: { product: { select: { id: true, name: true } } } },
@@ -195,7 +202,6 @@ export const orderController = {
 
         // Generate Cashbook Entry if paid > 0
         if (body.paid > 0) {
-          const count = await tx.cashbookEntry.count({ where: { type: 'INCOME' } });
           const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
           
           await tx.cashbookEntry.create({
@@ -203,7 +209,7 @@ export const orderController = {
               code: cashbookCode,
               type: 'INCOME',
               amount: body.paid,
-              category: 'Thu tiền khách trả', // Thu tiền bán hàng
+              category: 'Thu tiền khách trả',
               partnerType: body.customerId ? 'customer' : 'other',
               customerId: body.customerId || null,
               partnerName: customerName,
@@ -214,6 +220,7 @@ export const orderController = {
               userId: req.user!.id,
               orderId: newOrder.id,
               note: `Thu tiền đơn hàng ${code}`,
+              tenantId,
             }
           });
         }
@@ -221,7 +228,7 @@ export const orderController = {
         return newOrder;
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.status(201).json(order);
     } catch (error) {
       next(error);
@@ -231,9 +238,11 @@ export const orderController = {
   // PUT /api/orders/:id/cancel
   cancel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const id = Number(req.params.id);
-      const order = await prisma.order.findUnique({
-        where: { id },
+      
+      const order = await prisma.order.findFirst({
+        where: { id, tenantId },
         include: { items: true },
       });
 
@@ -257,7 +266,6 @@ export const orderController = {
 
         // Revert customer stats
         if (order.customerId) {
-          // If there was a debt, we decrement it
           const debtChange = Number(order.total) - Number(order.paid);
           await tx.customer.update({
             where: { id: order.customerId },
@@ -271,12 +279,12 @@ export const orderController = {
         
         // Also cancel associated cashbook entries
         await tx.cashbookEntry.updateMany({
-          where: { orderId: id, status: 'completed' },
+          where: { tenantId, orderId: id, status: 'completed' },
           data: { status: 'cancelled', note: 'Hủy theo đơn hàng bị hủy' }
         });
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.json({ message: 'Đã hủy đơn hàng' });
     } catch (error) {
       next(error);
@@ -286,11 +294,12 @@ export const orderController = {
   // PUT /api/orders/:id
   update: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const id = Number(req.params.id);
       const body = createOrderSchema.parse(req.body);
       
-      const order = await prisma.order.findUnique({
-        where: { id },
+      const order = await prisma.order.findFirst({
+        where: { id, tenantId },
         include: { items: true },
       });
       if (!order) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
@@ -374,7 +383,9 @@ export const orderController = {
         }
         
         // 6. Update/Sync Cashbook entry
-        const existingEntry = await tx.cashbookEntry.findFirst({ where: { orderId: id } });
+        const existingEntry = await tx.cashbookEntry.findFirst({
+          where: { tenantId, orderId: id }
+        });
         if (paid > 0) {
           if (existingEntry) {
             await tx.cashbookEntry.update({
@@ -399,6 +410,7 @@ export const orderController = {
                 userId: req.user!.id,
                 orderId: id,
                 note: `Thu tiền đơn hàng ${newOrder.code} (Cập nhật)`,
+                tenantId,
               }
             });
           }
@@ -414,7 +426,7 @@ export const orderController = {
         return newOrder;
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.json(updatedOrder);
     } catch (error) {
       next(error);
@@ -423,12 +435,13 @@ export const orderController = {
 
   importExcel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const orders = req.body.orders || req.body.items;
       let importedCount = 0;
 
       await prisma.$transaction(async (tx) => {
         for (const orderData of orders) {
-          const code = orderData.code || orderData.order_code || await generateOrderCode();
+          const code = orderData.code || orderData.order_code || await generateOrderCode(tenantId, tx);
           
           // 1. Resolve Customer
           let customerId = orderData.customerId || null;
@@ -436,10 +449,22 @@ export const orderController = {
             const custCode = orderData.customer_code || `KH${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 1000)}`;
             const custPhone = orderData.customer_phone || null;
             
-            // Try finding existing by code or phone
             let existingCust = null;
-            if (custCode && custCode !== 'KH...') existingCust = await tx.customer.findUnique({ where: { code: custCode } });
-            if (!existingCust && custPhone) existingCust = await tx.customer.findFirst({ where: { phone: custPhone } });
+            if (custCode && custCode !== 'KH...') {
+              existingCust = await tx.customer.findUnique({
+                where: {
+                  tenantId_code: {
+                    tenantId,
+                    code: custCode,
+                  },
+                },
+              });
+            }
+            if (!existingCust && custPhone) {
+              existingCust = await tx.customer.findFirst({
+                where: { tenantId, phone: custPhone }
+              });
+            }
 
             if (existingCust) {
               customerId = existingCust.id;
@@ -450,6 +475,7 @@ export const orderController = {
                   name: orderData.customer_name || 'Khách lẻ',
                   phone: custPhone,
                   address: orderData.customer_address || null,
+                  tenantId,
                 }
               });
               customerId = newCust.id;
@@ -465,9 +491,18 @@ export const orderController = {
             let productId = item.productId;
             if (!productId) {
               const pSku = item.product_sku || `SP-HD-${code}-${Math.floor(Math.random() * 10000)}`;
-              let existingProd = await tx.product.findUnique({ where: { sku: pSku } });
+              let existingProd = await tx.product.findUnique({
+                where: {
+                  tenantId_sku: {
+                    tenantId,
+                    sku: pSku,
+                  },
+                },
+              });
               if (!existingProd && item.product_name) {
-                existingProd = await tx.product.findFirst({ where: { name: item.product_name } });
+                existingProd = await tx.product.findFirst({
+                  where: { tenantId, name: item.product_name }
+                });
               }
               if (existingProd) {
                 productId = existingProd.id;
@@ -478,6 +513,7 @@ export const orderController = {
                     name: item.product_name || 'Hàng hóa chung',
                     sellPrice: item.price !== undefined ? item.price : (item.unit_price || 0),
                     unit: item.unit || 'Cái',
+                    tenantId,
                   }
                 });
                 productId = newProd.id;
@@ -508,8 +544,15 @@ export const orderController = {
           const total = subtotal - (orderData.discount || 0);
           const paid = orderData.paid !== undefined ? orderData.paid : total;
 
-          // Check if order code already exists
-          const existingOrder = await tx.order.findUnique({ where: { code } });
+          // Check if order code already exists within same tenant
+          const existingOrder = await tx.order.findUnique({
+            where: {
+              tenantId_code: {
+                tenantId,
+                code,
+              },
+            },
+          });
           if (existingOrder) {
             // Delete old items and update
             await tx.orderItem.deleteMany({ where: { orderId: existingOrder.id } });
@@ -550,6 +593,7 @@ export const orderController = {
                 status: 'COMPLETED',
                 createdAt: parseExcelDate(orderData.createdAt) || new Date(),
                 items: { create: itemsToCreate },
+                tenantId,
               },
             });
           }
@@ -570,7 +614,7 @@ export const orderController = {
         }
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.status(201).json({ message: `Đã import thành công ${importedCount} hóa đơn`, count: importedCount });
     } catch (error) {
       next(error);

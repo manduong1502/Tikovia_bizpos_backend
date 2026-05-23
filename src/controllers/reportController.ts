@@ -5,6 +5,7 @@ export const reportController = {
   // GET /api/reports/end-of-day
   endOfDay: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       let startDate = new Date();
       let endDate = new Date();
 
@@ -34,6 +35,7 @@ export const reportController = {
       const [orders, returns, cashbook] = await Promise.all([
         prisma.order.findMany({
           where: { 
+            tenantId,
             createdAt: { gte: startDate, lte: endDate },
             status: 'COMPLETED'
           },
@@ -46,13 +48,14 @@ export const reportController = {
         }),
         prisma.return.findMany({
           where: { 
+            tenantId,
             createdAt: { gte: startDate, lte: endDate },
             status: 'COMPLETED' 
           },
           select: { total: true }
         }),
         prisma.cashbookEntry.findMany({
-          where: { createdAt: { gte: startDate, lte: endDate } }
+          where: { tenantId, createdAt: { gte: startDate, lte: endDate } }
         })
       ]);
 
@@ -110,6 +113,7 @@ export const reportController = {
   // GET /api/reports/sales
   sales: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       // Mặc định lấy 30 ngày gần nhất
       const days = parseInt(req.query.days as string) || 30;
       const startDate = new Date();
@@ -117,7 +121,7 @@ export const reportController = {
       startDate.setHours(0, 0, 0, 0);
 
       const orders = await prisma.order.findMany({
-        where: { createdAt: { gte: startDate }, status: 'COMPLETED' },
+        where: { tenantId, createdAt: { gte: startDate }, status: 'COMPLETED' },
         select: { createdAt: true, total: true }
       });
 
@@ -144,6 +148,7 @@ export const reportController = {
   // GET /api/reports/products (Products sales report)
   products: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       let startDate = new Date();
       let endDate = new Date();
 
@@ -174,6 +179,7 @@ export const reportController = {
       // Fetch all COMPLETED orders in period with items & product details
       const orders = await prisma.order.findMany({
         where: { 
+          tenantId,
           createdAt: { gte: startDate, lte: endDate },
           status: 'COMPLETED'
         },
@@ -187,6 +193,7 @@ export const reportController = {
       // Fetch all COMPLETED returns in period with items
       const returns = await prisma.return.findMany({
         where: { 
+          tenantId,
           createdAt: { gte: startDate, lte: endDate },
           status: 'COMPLETED' 
         },
@@ -237,9 +244,10 @@ export const reportController = {
     }
   },
 
-  // 4. Báo cáo khách hàng
+  // Báo cáo khách hàng
   getCustomers: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const { fromDate, toDate } = req.query;
       let startDate = new Date(0);
       let endDate = new Date();
@@ -253,6 +261,7 @@ export const reportController = {
       // Fetch all COMPLETED orders in period that have a customer attached
       const orders = await prisma.order.findMany({
         where: {
+          tenantId,
           createdAt: { gte: startDate, lte: endDate },
           status: 'COMPLETED',
           customerId: { not: null }
@@ -265,6 +274,7 @@ export const reportController = {
       // Fetch all COMPLETED returns in period that have a customer attached
       const returns = await prisma.return.findMany({
         where: { 
+          tenantId,
           createdAt: { gte: startDate, lte: endDate },
           status: 'COMPLETED',
           customerId: { not: null }
@@ -299,7 +309,6 @@ export const reportController = {
         const cus = ret.customer;
         if (!cus) return;
         if (!customerMap[cus.id]) {
-          // It's possible a customer only has returns in this period
           customerMap[cus.id] = {
             id: cus.id,
             code: cus.code,

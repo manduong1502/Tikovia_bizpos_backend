@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { config } from '../config';
 import { memoryCache } from '../utils/cache';
+import { AuthRequest } from '../middlewares/auth';
 
 const productSchema = z.object({
   sku: z.string().optional().nullable(),
@@ -58,12 +59,13 @@ export const productController = {
   // GET /api/products/all — lấy tất cả (cho dropdown/select)
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const cacheKey = 'products:all';
+      const tenantId = (req as any).tenant!.id;
+      const cacheKey = memoryCache.tenantKey(tenantId, 'products:all');
       const cached = memoryCache.get(cacheKey);
       if (cached) return res.json(cached);
 
       const products = await prisma.product.findMany({
-        where: { isActive: true },
+        where: { tenantId, isActive: true },
         include: { 
           category: { select: { id: true, name: true } },
           brand: { select: { id: true, name: true } },
@@ -82,16 +84,17 @@ export const productController = {
   // GET /api/products — phân trang + tìm kiếm
   list: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const page = Math.max(1, parseInt(req.query.page as string) || config.pagination.defaultPage);
       const limit = Math.min(config.pagination.maxLimit, parseInt(req.query.limit as string) || config.pagination.defaultLimit);
       const search = (req.query.search as string) || '';
       const categoryId = req.query.categoryId ? parseInt(req.query.categoryId as string) : undefined;
 
-      const cacheKey = `products:list:${page}:${limit}:${search}:${categoryId || ''}`;
+      const cacheKey = memoryCache.tenantKey(tenantId, `products:list:${page}:${limit}:${search}:${categoryId || ''}`);
       const cached = memoryCache.get(cacheKey);
       if (cached) return res.json(cached);
 
-      const where: any = { isActive: true };
+      const where: any = { tenantId, isActive: true };
       if (search) {
         where.OR = [
           { name: { contains: search, mode: 'insensitive' } },
@@ -127,12 +130,13 @@ export const productController = {
   // GET /api/products/:id
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const cacheKey = `products:id:${req.params.id}`;
+      const tenantId = (req as any).tenant!.id;
+      const cacheKey = memoryCache.tenantKey(tenantId, `products:id:${req.params.id}`);
       const cached = memoryCache.get(cacheKey);
       if (cached) return res.json(cached);
 
-      const product = await prisma.product.findUnique({
-        where: { id: Number(req.params.id) },
+      const product = await prisma.product.findFirst({
+        where: { id: Number(req.params.id), tenantId },
         include: { category: true, brand: true, supplier: true },
       });
       if (!product) return res.status(404).json({ message: 'Không tìm thấy hàng hóa' });
@@ -145,11 +149,14 @@ export const productController = {
   },
 
   // POST /api/products
-  create: async (req: Request, res: Response, next: NextFunction) => {
+  create: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const data = productSchema.parse(req.body);
+      const tenantId = req.user!.tenantId;
       
-      const existingName = await prisma.product.findFirst({ where: { name: data.name } });
+      const existingName = await prisma.product.findFirst({
+        where: { tenantId, name: data.name }
+      });
       if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
       
       // Auto-generate sku if empty
@@ -158,7 +165,10 @@ export const productController = {
       }
 
       const product = await prisma.product.create({
-        data: data as any,
+        data: {
+          ...data,
+          tenantId,
+        } as any,
         include: { 
           category: { select: { id: true, name: true } },
           brand: { select: { id: true, name: true } },
@@ -166,7 +176,7 @@ export const productController = {
         },
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.status(201).json(product);
     } catch (error) {
       next(error);
@@ -174,16 +184,24 @@ export const productController = {
   },
 
   // PUT /api/products/:id
-  update: async (req: Request, res: Response, next: NextFunction) => {
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
       const bodyData = { ...req.body };
       if (bodyData.sell_price !== undefined) bodyData.sellPrice = Number(bodyData.sell_price);
       if (bodyData.cost_price !== undefined) bodyData.costPrice = Number(bodyData.cost_price);
 
       const data = productSchema.partial().parse(bodyData);
       
+      const existingProduct = await prisma.product.findFirst({
+        where: { id: Number(req.params.id), tenantId }
+      });
+      if (!existingProduct) return res.status(404).json({ message: 'Không tìm thấy hàng hóa' });
+
       if (data.name) {
-        const existingName = await prisma.product.findFirst({ where: { name: data.name, id: { not: Number(req.params.id) } } });
+        const existingName = await prisma.product.findFirst({
+          where: { tenantId, name: data.name, id: { not: Number(req.params.id) } }
+        });
         if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
       }
 
@@ -201,7 +219,7 @@ export const productController = {
         },
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.json(product);
     } catch (error) {
       next(error);
@@ -209,14 +227,21 @@ export const productController = {
   },
 
   // DELETE /api/products/:id (soft delete)
-  delete: async (req: Request, res: Response, next: NextFunction) => {
+  delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.user!.tenantId;
+      
+      const existingProduct = await prisma.product.findFirst({
+        where: { id: Number(req.params.id), tenantId }
+      });
+      if (!existingProduct) return res.status(404).json({ message: 'Không tìm thấy hàng hóa' });
+
       await prisma.product.update({
         where: { id: Number(req.params.id) },
         data: { isActive: false },
       });
 
-      memoryCache.clearPattern('products');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.json({ message: 'Đã xóa hàng hóa' });
     } catch (error) {
       next(error);
@@ -224,9 +249,10 @@ export const productController = {
   },
 
   // POST /api/products/import
-  importExcel: async (req: Request, res: Response, next: NextFunction) => {
+  importExcel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const items = req.body.items;
+      const tenantId = req.user!.tenantId;
       let importedCount = 0;
 
       await prisma.$transaction(async (tx) => {
@@ -237,9 +263,9 @@ export const productController = {
           let categoryId = item.categoryId || null;
           if (!categoryId && item.category_name) {
             const catName = item.category_name.trim();
-            let cat = await tx.category.findFirst({ where: { name: catName } });
+            let cat = await tx.category.findFirst({ where: { tenantId, name: catName } });
             if (!cat) {
-              cat = await tx.category.create({ data: { name: catName } });
+              cat = await tx.category.create({ data: { name: catName, tenantId } });
             }
             categoryId = cat.id;
           }
@@ -248,9 +274,9 @@ export const productController = {
           let brandId = item.brandId || null;
           if (!brandId && item.brand_name) {
             const brandName = item.brand_name.trim();
-            let br = await tx.brand.findFirst({ where: { name: brandName } });
+            let br = await tx.brand.findFirst({ where: { tenantId, name: brandName } });
             if (!br) {
-              br = await tx.brand.create({ data: { name: brandName } });
+              br = await tx.brand.create({ data: { name: brandName, tenantId } });
             }
             brandId = br.id;
           }
@@ -259,9 +285,9 @@ export const productController = {
           let supplierId = item.supplierId || null;
           if (!supplierId && item.supplier_name) {
             const supName = item.supplier_name.trim();
-            let sup = await tx.supplier.findFirst({ where: { name: supName } });
+            let sup = await tx.supplier.findFirst({ where: { tenantId, name: supName } });
             if (!sup) {
-              sup = await tx.supplier.create({ data: { code: `NCC${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`, name: supName } });
+              sup = await tx.supplier.create({ data: { code: `NCC${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`, name: supName, tenantId } });
             }
             supplierId = sup.id;
           }
@@ -287,12 +313,20 @@ export const productController = {
             isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
             directSale: item.directSale !== undefined ? Boolean(item.directSale) : true,
             createdAt: parseExcelDate(item.createdAt) || new Date(),
+            tenantId,
           };
 
-          const ex = await tx.product.findUnique({ where: { sku } });
+          const ex = await tx.product.findUnique({
+            where: {
+              tenantId_sku: {
+                tenantId,
+                sku,
+              },
+            },
+          });
           if (ex) {
             await tx.product.update({
-              where: { sku },
+              where: { id: ex.id },
               data: productData,
             });
           } else {
@@ -307,9 +341,9 @@ export const productController = {
         }
       });
 
-      memoryCache.clearPattern('products');
-      memoryCache.delete('categories:all');
-      memoryCache.delete('brands:all');
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
+      memoryCache.delete(memoryCache.tenantKey(tenantId, 'categories:all'));
+      memoryCache.delete(memoryCache.tenantKey(tenantId, 'brands:all'));
       res.status(201).json({ message: `Đã import thành công ${importedCount} hàng hóa`, count: importedCount });
     } catch (error) {
       next(error);

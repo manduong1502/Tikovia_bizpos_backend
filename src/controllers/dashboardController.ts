@@ -4,6 +4,7 @@ import prisma from '../config/database';
 export const dashboardController = {
   get: async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const tenantId = (req as any).tenant!.id;
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
@@ -54,7 +55,7 @@ export const dashboardController = {
       const prodRange = getRange(timeProd);
       const custRange = getRange(timeCust);
 
-      // All queries run in parallel for speed
+      // All queries run in parallel for speed, fully scoped by tenantId
       const [
         todayOrders,
         todayRevenue,
@@ -71,27 +72,28 @@ export const dashboardController = {
       ] = await Promise.all([
         // Đơn hàng hôm nay
         prisma.order.count({
-          where: { createdAt: { gte: today, lt: tomorrow }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: today, lt: tomorrow }, status: 'COMPLETED' },
         }),
         // Doanh thu hôm nay
         prisma.order.aggregate({
-          where: { createdAt: { gte: today, lt: tomorrow }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: today, lt: tomorrow }, status: 'COMPLETED' },
           _sum: { total: true },
         }),
         // Trả hàng hôm nay
         prisma.return.count({
-          where: { createdAt: { gte: today, lt: tomorrow } },
+          where: { tenantId, createdAt: { gte: today, lt: tomorrow } },
         }),
         // Tổng sản phẩm active
-        prisma.product.count({ where: { isActive: true } }),
+        prisma.product.count({ where: { tenantId, isActive: true } }),
         // Sản phẩm sắp hết hàng
         prisma.product.count({
-          where: { isActive: true, stock: { lte: 5 } }, // Hardcode 5 for now since minStock might not exist
+          where: { tenantId, isActive: true, stock: { lte: 5 } },
         }).catch(() => 0),
         // Tổng khách hàng
-        prisma.customer.count(),
+        prisma.customer.count({ where: { tenantId } }),
         // 10 đơn hàng gần nhất
         prisma.order.findMany({
+          where: { tenantId },
           take: 10,
           orderBy: { createdAt: 'desc' },
           include: {
@@ -101,18 +103,18 @@ export const dashboardController = {
         }),
         // Doanh thu tháng này
         prisma.order.aggregate({
-          where: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
           _sum: { total: true },
         }),
         // Doanh thu tháng trước
         prisma.order.aggregate({
-          where: { createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: 'COMPLETED' },
           _sum: { total: true },
         }),
         // Top hàng bán chạy
         prisma.orderItem.groupBy({
           by: ['productId'],
-          where: { order: { createdAt: { gte: prodRange.start, lte: prodRange.end }, status: 'COMPLETED' } },
+          where: { order: { tenantId, createdAt: { gte: prodRange.start, lte: prodRange.end }, status: 'COMPLETED' } },
           _sum: { quantity: true, total: true },
           orderBy: { _sum: { quantity: 'desc' } },
           take: 5,
@@ -120,7 +122,7 @@ export const dashboardController = {
         // Top khách chi tiêu
         prisma.order.groupBy({
           by: ['customerId'],
-          where: { createdAt: { gte: custRange.start, lte: custRange.end }, status: 'COMPLETED', customerId: { not: null } },
+          where: { tenantId, createdAt: { gte: custRange.start, lte: custRange.end }, status: 'COMPLETED', customerId: { not: null } },
           _sum: { total: true },
           _count: { id: true },
           orderBy: { _sum: { total: 'desc' } },
@@ -128,12 +130,12 @@ export const dashboardController = {
         }),
         // Doanh thu theo ngày trong tháng này
         prisma.order.findMany({
-          where: { createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
           select: { createdAt: true, total: true }
         })
       ]);
 
-      // Process daily revenues manually since Prisma doesn't support grouping by day easily in all DBs
+      // Process daily revenues manually
       const dailyRevenuesMap = new Map();
       dailyRevenuesDb.forEach(order => {
         const day = order.createdAt.getDate();
@@ -147,7 +149,7 @@ export const dashboardController = {
       // Enrich top customers with name
       const topCustomersIds = topCustomersDb.map(c => c.customerId).filter(id => id !== null) as number[];
       const customersData = await prisma.customer.findMany({
-        where: { id: { in: topCustomersIds } },
+        where: { tenantId, id: { in: topCustomersIds } },
         select: { id: true, name: true }
       });
       const top_customers = topCustomersDb.map(c => {
@@ -161,7 +163,7 @@ export const dashboardController = {
 
       const topProductsIds = topProductsDb.map(p => p.productId).filter(id => id !== null) as number[];
       const productsData = await prisma.product.findMany({
-        where: { id: { in: topProductsIds } },
+        where: { tenantId, id: { in: topProductsIds } },
         select: { id: true, name: true }
       });
       const top_products = topProductsDb.map(p => {
