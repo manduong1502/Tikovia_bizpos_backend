@@ -47,8 +47,8 @@ export const authController = {
         return res.status(400).json({ message: 'Không xác định được thông tin gian hàng' });
       }
 
-      // Find user by composite unique constraint (tenantId + username)
-      const user = await prisma.user.findUnique({
+      // 1. Try to find user in current tenant subdomain context first
+      let user = await prisma.user.findUnique({
         where: {
           tenantId_username: {
             tenantId,
@@ -57,6 +57,13 @@ export const authController = {
         },
       });
 
+      // 2. Fallback: Search globally across all tenants (allows login from main domain)
+      if (!user) {
+        user = await prisma.user.findFirst({
+          where: { username },
+        });
+      }
+
       if (!user || !user.isActive) {
         return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
       }
@@ -64,6 +71,19 @@ export const authController = {
       const validPassword = await bcrypt.compare(password, user.password);
       if (!validPassword) {
         return res.status(401).json({ message: 'Tên đăng nhập hoặc mật khẩu không đúng' });
+      }
+
+      // Fetch user's actual tenant details
+      const userTenant = await prisma.tenant.findUnique({
+        where: { id: user.tenantId },
+      });
+
+      if (!userTenant || !userTenant.isActive) {
+        return res.status(403).json({ message: 'Cửa hàng này đã bị tạm khóa' });
+      }
+
+      if (userTenant.expiredAt && new Date(userTenant.expiredAt) < new Date()) {
+        return res.status(403).json({ message: 'Cửa hàng đã hết hạn sử dụng' });
       }
 
       const token = jwt.sign(
@@ -82,7 +102,7 @@ export const authController = {
           role: user.role,
           tenantId: user.tenantId,
         },
-        tenant: (req as any).tenant,
+        tenant: userTenant,
       });
     } catch (error) {
       next(error);
