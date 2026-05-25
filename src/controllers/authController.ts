@@ -23,10 +23,15 @@ const registerSchema = z.object({
 const registerTenantSchema = z.object({
   tenantName: z.string().min(1, 'Tên cửa hàng không được để trống'),
   subdomain: z.string().min(2, 'Subdomain tối thiểu 2 ký tự').regex(/^[a-z0-9-]+$/, 'Subdomain chỉ gồm chữ thường, số và dấu gạch ngang'),
-  phone: z.string().min(10, 'Số điện thoại tối thiểu 10 chữ số'),
+  phone: z.string().min(10, 'Số điện thoại tối thiểu 10 chữ số').regex(/^[0-9]+$/, 'Số điện thoại chỉ được chứa các chữ số'),
   area: z.string().min(1, 'Khu vực không được để trống'),
-  adminUsername: z.string().min(3, 'Tên đăng nhập tối thiểu 3 ký tự'),
-  adminPassword: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
+  adminUsername: z.string().min(10, 'Tên đăng nhập phải chứa tối thiểu 10 chữ số').regex(/^[0-9]+$/, 'Tên đăng nhập quản trị phải là số điện thoại'),
+  adminPassword: z.string()
+    .min(8, 'Mật khẩu tối thiểu phải từ 8 ký tự trở lên')
+    .regex(/[a-z]/, 'Mật khẩu phải chứa ít nhất 1 chữ cái thường')
+    .regex(/[A-Z]/, 'Mật khẩu phải chứa ít nhất 1 chữ cái viết hoa')
+    .regex(/[0-9]/, 'Mật khẩu phải chứa ít nhất 1 chữ số')
+    .regex(/[^a-zA-Z0-9]/, 'Mật khẩu phải chứa ít nhất 1 ký tự đặc biệt (ví dụ: @, $, !, %, *, ?, &)'),
   adminFullName: z.string().min(1, 'Họ tên không được để trống'),
   adminEmail: z.string().email('Email không hợp lệ').optional().nullable(),
 });
