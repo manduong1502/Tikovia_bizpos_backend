@@ -48,6 +48,7 @@ router.get('/orders', authenticate, orderController.getAll);
 router.get('/orders/:id', authenticate, orderController.getById);
 router.post('/orders/import', authenticate, orderController.importExcel);
 router.post('/orders', authenticate, orderController.create);
+router.put('/orders/by-code/:code/driver-status', orderController.updateDriverStatus);
 router.put('/orders/:id', authenticate, orderController.update);
 router.put('/orders/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), orderController.cancel);
 router.delete('/orders/:id', authenticate, orderController.delete);

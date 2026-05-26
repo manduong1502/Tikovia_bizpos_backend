@@ -234,6 +234,13 @@ model Order {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
+  deliveryAddress String?
+  receiverName    String?
+  receiverPhone   String?
+  driverId        String?
+  driverName      String?
+  deliveryStatus  String?
+
   items   OrderItem[]
   returns Return[]
   cashbookEntries CashbookEntry[]
@@ -251,6 +258,7 @@ enum OrderStatus {
   COMPLETED
   CANCELLED
   PENDING
+  SHIPPING
 }
 
 enum PaymentMethod {

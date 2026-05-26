@@ -18,6 +18,13 @@ const createOrderSchema = z.object({
   paid: z.coerce.number().min(0).default(0),
   paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'MIXED']).default('CASH'),
   note: z.string().optional().nullable(),
+  status: z.enum(['COMPLETED', 'CANCELLED', 'PENDING', 'SHIPPING']).default('COMPLETED'),
+  deliveryAddress: z.string().optional().nullable(),
+  receiverName: z.string().optional().nullable(),
+  receiverPhone: z.string().optional().nullable(),
+  driverId: z.string().optional().nullable(),
+  driverName: z.string().optional().nullable(),
+  deliveryStatus: z.string().optional().nullable(),
 });
 
 const updateOrderSchema = z.object({
@@ -27,6 +34,13 @@ const updateOrderSchema = z.object({
   paid: z.coerce.number().min(0).optional(),
   paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'MIXED']).optional(),
   note: z.string().optional().nullable(),
+  status: z.enum(['COMPLETED', 'CANCELLED', 'PENDING', 'SHIPPING']).optional(),
+  deliveryAddress: z.string().optional().nullable(),
+  receiverName: z.string().optional().nullable(),
+  receiverPhone: z.string().optional().nullable(),
+  driverId: z.string().optional().nullable(),
+  driverName: z.string().optional().nullable(),
+  deliveryStatus: z.string().optional().nullable(),
 });
 
 // Auto-generate order code using SequenceTracker scoped by tenantId
@@ -190,13 +204,19 @@ export const orderController = {
             paid: body.paid ?? total,
             paymentMethod: body.paymentMethod,
             note: body.note,
-            status: 'COMPLETED',
+            status: body.status || 'COMPLETED',
+            deliveryAddress: body.deliveryAddress || null,
+            receiverName: body.receiverName || null,
+            receiverPhone: body.receiverPhone || null,
+            driverId: body.driverId || null,
+            driverName: body.driverName || null,
+            deliveryStatus: body.deliveryStatus || null,
             items: { create: itemsData },
             tenantId,
           },
           include: {
             items: { include: { product: { select: { id: true, name: true } } } },
-            customer: { select: { id: true, name: true } },
+            customer: { select: { id: true, name: true, phone: true, address: true } },
           },
         });
 
@@ -250,6 +270,11 @@ export const orderController = {
       });
 
       memoryCache.clearPattern(`tenant:${tenantId}:products`);
+      if (order.status === 'SHIPPING') {
+        syncOrderToDriverApp(order).catch(err => {
+          console.error('Lỗi khi đồng bộ đơn hàng sang app tài xế:', err);
+        });
+      }
       res.status(201).json(order);
     } catch (error) {
       next(error);
@@ -724,4 +749,161 @@ export const orderController = {
       next(error);
     }
   },
+
+  updateDriverStatus: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = (req as any).tenant!.id;
+      const code = req.params.code as string;
+      const { driverId, driverName, deliveryStatus, codAmount, paymentMethod } = req.body;
+
+      // Find the order
+      const order = await prisma.order.findFirst({
+        where: { code, tenantId },
+        include: { customer: true }
+      });
+
+      if (!order) {
+        return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+      }
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const updateData: any = {};
+        if (driverId !== undefined) updateData.driverId = driverId;
+        if (driverName !== undefined) updateData.driverName = driverName;
+        if (deliveryStatus !== undefined) updateData.deliveryStatus = deliveryStatus;
+
+        // If deliveryStatus is completed (DELIVERED)
+        if (deliveryStatus === 'DELIVERED') {
+          updateData.status = 'COMPLETED'; // Transition order to COMPLETED
+          const finalPaid = Number(codAmount ?? order.total);
+          updateData.paid = finalPaid;
+
+          // Re-calculate customer metrics if we collected cash and it changed
+          if (order.customerId) {
+            const oldPaid = Number(order.paid);
+            const diffPaid = finalPaid - oldPaid;
+            await tx.customer.update({
+              where: { id: order.customerId },
+              data: {
+                totalDebt: { decrement: diffPaid }
+              }
+            });
+          }
+
+          // Create Cashbook entry
+          const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+          const customerName = order.customerId ? order.customer?.name || 'Khách lẻ' : 'Khách lẻ';
+          
+          await tx.cashbookEntry.create({
+            data: {
+              code: cashbookCode,
+              type: 'INCOME',
+              amount: finalPaid,
+              category: 'Thu tiền khách trả',
+              partnerType: order.customerId ? 'customer' : 'other',
+              customerId: order.customerId || null,
+              partnerName: customerName,
+              paymentMethod: paymentMethod === 'TRANSFER' ? 'bank' : 'cash',
+              isAccounting: true,
+              status: 'completed',
+              branch: 'Chi nhánh trung tâm',
+              userId: order.userId,
+              orderId: order.id,
+              note: `Thu tiền COD đơn hàng ${code} (Tài xế giao thành công)`,
+              tenantId
+            }
+          });
+        } else if (deliveryStatus === 'CANCELED') {
+          updateData.status = 'CANCELLED';
+          
+          // Restore stock
+          const orderWithItems = await tx.order.findUnique({
+            where: { id: order.id },
+            include: { items: true }
+          });
+          if (orderWithItems) {
+            for (const item of orderWithItems.items) {
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } }
+              });
+            }
+          }
+
+          // Revert customer spent & debt if order was cancelled
+          if (order.customerId) {
+            const oldDebtChange = Number(order.total) - Number(order.paid);
+            await tx.customer.update({
+              where: { id: order.customerId },
+              data: {
+                totalSpent: { decrement: order.total },
+                totalOrders: { decrement: 1 },
+                totalDebt: { decrement: oldDebtChange },
+              }
+            });
+          }
+
+          // Cancel associated cashbook entries
+          await tx.cashbookEntry.updateMany({
+            where: { tenantId, orderId: order.id, status: 'completed' },
+            data: { status: 'cancelled', note: 'Hủy theo đơn hàng bị hủy bởi tài xế' }
+          });
+        }
+
+        return tx.order.update({
+          where: { id: order.id },
+          data: updateData
+        });
+      });
+
+      res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  },
 };
+
+// Helper function to sync order to driver app's Google Sheet
+async function syncOrderToDriverApp(order: any) {
+  const googleScriptUrl = process.env.DRIVER_APP_GOOGLE_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbxIN0yxGmHN2GELHmaiGkfeekOyQt8sJjUNU_gRqOBtgcqZfb98P6J3qQK_pGWlGG0l/exec';
+
+  const items = (order.items || []).map((it: any) => {
+    const productName = it.product?.name || 'Sản phẩm';
+    return `${productName} (x${it.quantity})`;
+  });
+
+  const payload = {
+    id: `DH-${order.code}`,
+    customerName: order.receiverName || order.customer?.name || 'Khách lẻ',
+    customerPhone: order.receiverPhone || order.customer?.phone || '',
+    address: order.deliveryAddress || order.customer?.address || 'Tại cửa hàng',
+    location: {
+      lat: 10.762622 + (Math.random() - 0.5) * 0.04,
+      lng: 106.660172 + (Math.random() - 0.5) * 0.04,
+    },
+    orderValue: Number(order.total),
+    status: 'ASSIGNED',
+    items,
+    driverId: order.driverId || '',
+    driverName: order.driverName || 'Chưa gán',
+    note: order.note || '',
+    createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : new Date().toISOString(),
+  };
+
+  try {
+    const fetchFn = (globalThis as any).fetch;
+    if (typeof fetchFn === 'function') {
+      const response = await fetchFn(`${googleScriptUrl}?action=saveOrder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      const resText = await response.text();
+      console.log('Đồng bộ đơn hàng sang App tài xế thành công:', resText);
+    } else {
+      console.warn('Không tìm thấy hàm fetch toàn cục trong môi trường Node.js này.');
+    }
+  } catch (error) {
+    console.error('Không thể đồng bộ đơn hàng sang App tài xế:', error);
+  }
+}
