@@ -204,5 +204,86 @@ export const returnController = {
     } catch (error) {
       next(error);
     }
+  },
+
+  // PUT /api/returns/:id
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.user!.tenantId;
+      const id = Number(req.params.id);
+      const { reason } = req.body;
+      const ret = await prisma.return.findFirst({ where: { id, tenantId } });
+      if (!ret) return res.status(404).json({ message: 'Không tìm thấy phiếu trả hàng' });
+      
+      const updated = await prisma.return.update({
+        where: { id },
+        data: { reason },
+      });
+      res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // PUT /api/returns/:id/cancel
+  cancel: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.user!.tenantId;
+      const id = Number(req.params.id);
+      
+      const ret = await prisma.return.findFirst({
+        where: { id, tenantId },
+        include: { items: true },
+      });
+      if (!ret) return res.status(404).json({ message: 'Không tìm thấy phiếu trả hàng' });
+      if (ret.status === 'CANCELLED') return res.status(400).json({ message: 'Phiếu trả hàng đã hủy trước đó' });
+      
+      await prisma.$transaction(async (tx) => {
+        await tx.return.update({
+          where: { id },
+          data: { status: 'CANCELLED' },
+        });
+        
+        // Hoàn lại kho (phiếu trả bị hủy nên phải trừ lại kho sản phẩm)
+        for (const item of ret.items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { decrement: item.quantity } },
+          });
+        }
+        
+        // Revert customer spent & debt
+        if (ret.customerId) {
+          const total = Number(ret.total);
+          const discount = Number(ret.discount);
+          const paid = Number(ret.paid);
+          
+          await tx.customer.update({
+            where: { id: ret.customerId },
+            data: { totalSpent: { increment: total } },
+          });
+          
+          const netRefund = total - discount;
+          const debtReduction = netRefund - paid;
+          if (debtReduction !== 0) {
+            await tx.customer.update({
+              where: { id: ret.customerId },
+              data: { totalDebt: { increment: debtReduction } },
+            });
+          }
+        }
+        
+        // Hủy phiếu chi quỹ tương ứng
+        await tx.cashbookEntry.updateMany({
+          where: { tenantId, returnId: id, status: 'completed' },
+          data: { status: 'cancelled', note: 'Hủy theo phiếu trả hàng bị hủy' }
+        });
+      });
+      
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
+      res.json({ message: 'Đã hủy phiếu trả hàng thành công' });
+    } catch (error) {
+      next(error);
+    }
   }
 };

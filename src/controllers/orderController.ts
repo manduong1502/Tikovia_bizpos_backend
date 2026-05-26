@@ -20,6 +20,15 @@ const createOrderSchema = z.object({
   note: z.string().optional().nullable(),
 });
 
+const updateOrderSchema = z.object({
+  customerId: z.number().int().optional().nullable(),
+  items: z.array(orderItemSchema).min(1).optional(),
+  discount: z.coerce.number().min(0).optional(),
+  paid: z.coerce.number().min(0).optional(),
+  paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'MIXED']).optional(),
+  note: z.string().optional().nullable(),
+});
+
 // Auto-generate order code using SequenceTracker scoped by tenantId
 async function generateOrderCode(tenantId: number, txClient?: any): Promise<string> {
   const db = txClient || prisma;
@@ -308,7 +317,7 @@ export const orderController = {
     try {
       const tenantId = req.user!.tenantId;
       const id = Number(req.params.id);
-      const body = createOrderSchema.parse(req.body);
+      const body = updateOrderSchema.parse(req.body);
       
       const order = await prisma.order.findFirst({
         where: { id, tenantId },
@@ -317,125 +326,198 @@ export const orderController = {
       if (!order) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
 
       const updatedOrder = await prisma.$transaction(async (tx) => {
-        // 1. Revert old order effects
-        for (const item of order.items) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
-        if (order.customerId) {
-          const oldDebtChange = Number(order.total) - Number(order.paid);
-          await tx.customer.update({
-            where: { id: order.customerId },
-            data: {
-              totalSpent: { decrement: order.total },
-              totalOrders: { decrement: 1 },
-              totalDebt: { decrement: oldDebtChange },
-            },
-          });
-        }
-
-        // 2. Clear old items
-        await tx.orderItem.deleteMany({ where: { orderId: id } });
-
-        // 3. Calculate new totals
-        let subtotal = 0;
-        const itemsData = body.items.map((item) => {
-          const itemTotal = item.quantity * item.price - item.discount;
-          subtotal += itemTotal;
-          return {
-            productId: item.productId,
-            quantity: item.quantity,
-            price: item.price,
-            discount: item.discount,
-            total: itemTotal,
-          };
-        });
-        const total = subtotal - body.discount;
-        const paid = body.paid ?? total;
-
-        // 4. Update order
-        const newOrder = await tx.order.update({
-          where: { id },
-          data: {
-            customerId: body.customerId,
-            userId: req.user!.id,
-            subtotal,
-            discount: body.discount,
-            total,
-            paid,
-            paymentMethod: body.paymentMethod,
-            note: body.note,
-            items: { create: itemsData },
-          },
-          include: {
-            items: { include: { product: { select: { id: true, name: true } } } },
-            customer: { select: { id: true, name: true } },
-          },
-        });
-
-        // 5. Apply new order effects
-        for (const item of body.items) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { decrement: item.quantity } },
-          });
-        }
-        if (body.customerId) {
-          const newDebtChange = total - paid;
-          await tx.customer.update({
-            where: { id: body.customerId },
-            data: {
-              totalSpent: { increment: total },
-              totalOrders: { increment: 1 },
-              totalDebt: { increment: newDebtChange },
-            },
-          });
-        }
-        
-        // 6. Update/Sync Cashbook entry
-        const existingEntry = await tx.cashbookEntry.findFirst({
-          where: { tenantId, orderId: id }
-        });
-        if (paid > 0) {
-          if (existingEntry) {
-            await tx.cashbookEntry.update({
-              where: { id: existingEntry.id },
-              data: { amount: paid, customerId: body.customerId || null, status: 'completed' }
+        if (body.items) {
+          // 1. Revert old order effects
+          for (const item of order.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
             });
-          } else {
-            const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
-            await tx.cashbookEntry.create({
+          }
+          if (order.customerId) {
+            const oldDebtChange = Number(order.total) - Number(order.paid);
+            await tx.customer.update({
+              where: { id: order.customerId },
               data: {
-                code: cashbookCode,
-                type: 'INCOME',
-                amount: paid,
-                category: 'Thu tiền khách trả',
-                partnerType: body.customerId ? 'customer' : 'other',
-                customerId: body.customerId || null,
-                partnerName: newOrder.customer?.name || 'Khách lẻ',
-                paymentMethod: body.paymentMethod === 'CARD' ? 'bank' : (body.paymentMethod === 'TRANSFER' ? 'bank' : 'cash'),
-                isAccounting: true,
-                status: 'completed',
-                branch: 'Chi nhánh trung tâm',
-                userId: req.user!.id,
-                orderId: id,
-                note: `Thu tiền đơn hàng ${newOrder.code} (Cập nhật)`,
-                tenantId,
-              }
+                totalSpent: { decrement: order.total },
+                totalOrders: { decrement: 1 },
+                totalDebt: { decrement: oldDebtChange },
+              },
             });
           }
-        } else {
-          if (existingEntry) {
-            await tx.cashbookEntry.update({
-              where: { id: existingEntry.id },
-              data: { amount: 0, status: 'cancelled', note: 'Hủy thanh toán theo hóa đơn cập nhật' }
-            });
-          }
-        }
 
-        return newOrder;
+          // 2. Clear old items
+          await tx.orderItem.deleteMany({ where: { orderId: id } });
+
+          // 3. Calculate new totals
+          let subtotal = 0;
+          const itemsData = body.items.map((item) => {
+            const itemTotal = item.quantity * item.price - item.discount;
+            subtotal += itemTotal;
+            return {
+              productId: item.productId,
+              quantity: item.quantity,
+              price: item.price,
+              discount: item.discount,
+              total: itemTotal,
+            };
+          });
+          const total = subtotal - (body.discount ?? 0);
+          const paid = body.paid ?? total;
+
+          // 4. Update order
+          const newOrder = await tx.order.update({
+            where: { id },
+            data: {
+              customerId: body.customerId,
+              userId: req.user!.id,
+              subtotal,
+              discount: body.discount ?? 0,
+              total,
+              paid,
+              paymentMethod: body.paymentMethod ?? 'CASH',
+              note: body.note,
+              items: { create: itemsData },
+            },
+            include: {
+              items: { include: { product: { select: { id: true, name: true } } } },
+              customer: { select: { id: true, name: true } },
+            },
+          });
+
+          // 5. Apply new order effects
+          for (const item of body.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { decrement: item.quantity } },
+            });
+          }
+          if (body.customerId) {
+            const newDebtChange = total - paid;
+            await tx.customer.update({
+              where: { id: body.customerId },
+              data: {
+                totalSpent: { increment: total },
+                totalOrders: { increment: 1 },
+                totalDebt: { increment: newDebtChange },
+              },
+            });
+          }
+          
+          // 6. Update/Sync Cashbook entry
+          const existingEntry = await tx.cashbookEntry.findFirst({
+            where: { tenantId, orderId: id }
+          });
+          if (paid > 0) {
+            if (existingEntry) {
+              await tx.cashbookEntry.update({
+                where: { id: existingEntry.id },
+                data: { amount: paid, customerId: body.customerId || null, status: 'completed' }
+              });
+            } else {
+              const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+              await tx.cashbookEntry.create({
+                data: {
+                  code: cashbookCode,
+                  type: 'INCOME',
+                  amount: paid,
+                  category: 'Thu tiền khách trả',
+                  partnerType: body.customerId ? 'customer' : 'other',
+                  customerId: body.customerId || null,
+                  partnerName: newOrder.customer?.name || 'Khách lẻ',
+                  paymentMethod: body.paymentMethod === 'CARD' ? 'bank' : (body.paymentMethod === 'TRANSFER' ? 'bank' : 'cash'),
+                  isAccounting: true,
+                  status: 'completed',
+                  branch: 'Chi nhánh trung tâm',
+                  userId: req.user!.id,
+                  orderId: id,
+                  note: `Thu tiền đơn hàng ${newOrder.code} (Cập nhật)`,
+                  tenantId,
+                }
+              });
+            }
+          } else {
+            if (existingEntry) {
+              await tx.cashbookEntry.update({
+                where: { id: existingEntry.id },
+                data: { amount: 0, status: 'cancelled', note: 'Hủy thanh toán theo hóa đơn cập nhật' }
+              });
+            }
+          }
+
+          return newOrder;
+        } else {
+          // Partial update
+          const dataToUpdate: any = {};
+          if (body.note !== undefined) dataToUpdate.note = body.note;
+          if (body.paymentMethod !== undefined) dataToUpdate.paymentMethod = body.paymentMethod;
+          
+          if (body.paid !== undefined) {
+            const oldPaid = Number(order.paid);
+            const newPaid = Number(body.paid);
+            dataToUpdate.paid = newPaid;
+            
+            // Update customer debt if any
+            if (order.customerId) {
+              const diffPaid = newPaid - oldPaid;
+              await tx.customer.update({
+                where: { id: order.customerId },
+                data: { totalDebt: { decrement: diffPaid } }
+              });
+            }
+            
+            // Sync Cashbook Entry
+            const existingEntry = await tx.cashbookEntry.findFirst({
+              where: { tenantId, orderId: id }
+            });
+            if (newPaid > 0) {
+              if (existingEntry) {
+                await tx.cashbookEntry.update({
+                  where: { id: existingEntry.id },
+                  data: { amount: newPaid, status: 'completed' }
+                });
+              } else {
+                const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+                const customerName = order.customerId ? (await tx.customer.findFirst({ where: { id: order.customerId } }))?.name || 'Khách lẻ' : 'Khách lẻ';
+                await tx.cashbookEntry.create({
+                  data: {
+                    code: cashbookCode,
+                    type: 'INCOME',
+                    amount: newPaid,
+                    category: 'Thu tiền khách trả',
+                    partnerType: order.customerId ? 'customer' : 'other',
+                    customerId: order.customerId || null,
+                    partnerName: customerName,
+                    paymentMethod: body.paymentMethod === 'CARD' ? 'bank' : (body.paymentMethod === 'TRANSFER' ? 'bank' : 'cash'),
+                    isAccounting: true,
+                    status: 'completed',
+                    branch: 'Chi nhánh trung tâm',
+                    userId: req.user!.id,
+                    orderId: id,
+                    note: `Thu tiền đơn hàng ${order.code} (Cập nhật số tiền)`,
+                    tenantId,
+                  }
+                });
+              }
+            } else {
+              if (existingEntry) {
+                await tx.cashbookEntry.update({
+                  where: { id: existingEntry.id },
+                  data: { amount: 0, status: 'cancelled', note: 'Hủy thanh toán theo hóa đơn cập nhật' }
+                });
+              }
+            }
+          }
+          
+          return tx.order.update({
+            where: { id },
+            data: dataToUpdate,
+            include: {
+              items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+              customer: { select: { id: true, name: true } },
+            }
+          });
+        }
       });
 
       memoryCache.clearPattern(`tenant:${tenantId}:products`);

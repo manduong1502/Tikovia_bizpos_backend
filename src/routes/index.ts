@@ -85,6 +85,8 @@ router.post('/purchase-returns', authenticate, authorize('ADMIN', 'MANAGER'), pu
 router.get('/returns', authenticate, returnController.getAll);
 router.get('/returns/:id', authenticate, returnController.getById);
 router.post('/returns', authenticate, authorize('ADMIN', 'MANAGER'), returnController.create);
+router.put('/returns/:id', authenticate, authorize('ADMIN', 'MANAGER'), returnController.update);
+router.put('/returns/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), returnController.cancel);
 
 // ─── Inventory Checks (Kiểm kho) ───
 router.get('/inventory-checks', authenticate, inventoryCheckController.getAll);

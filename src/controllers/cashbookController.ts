@@ -62,7 +62,11 @@ export const cashbookController = {
 
       const entries = await prisma.cashbookEntry.findMany({
         where,
-        include: { user: { select: { id: true, fullName: true } } },
+        include: {
+          user: { select: { id: true, fullName: true } },
+          customer: { select: { id: true, code: true, name: true } },
+          supplier: { select: { id: true, code: true, name: true } }
+        },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -92,50 +96,73 @@ export const cashbookController = {
         supplierId,
       } = req.body;
 
-      if (customerId) {
-        const cust = await prisma.customer.findFirst({ where: { id: Number(customerId), tenantId } });
-        if (!cust) return res.status(404).json({ message: 'Không tìm thấy khách hàng của gian hàng này' });
-      }
-      if (supplierId) {
-        const sup = await prisma.supplier.findFirst({ where: { id: Number(supplierId), tenantId } });
-        if (!sup) return res.status(404).json({ message: 'Không tìm thấy nhà cung cấp của gian hàng này' });
-      }
-
+      const amountNum = Number(amount || 0);
       const typeEnum = (type === 'thu' || type === 'INCOME') ? 'INCOME' : 'EXPENSE';
       const prefix = typeEnum === 'INCOME' ? 'TTM' : 'TCM';
 
-      // Auto-generate unique code per tenant
-      const count = await prisma.cashbookEntry.count({
-        where: { tenantId, type: typeEnum },
-      });
-      const code = `${prefix}${String(count + 1).padStart(6, '0')}`;
+      const entry = await prisma.$transaction(async (tx) => {
+        if (customerId) {
+          const cust = await tx.customer.findFirst({ where: { id: Number(customerId), tenantId } });
+          if (!cust) throw new Error('Không tìm thấy khách hàng của gian hàng này');
 
-      const entry = await prisma.cashbookEntry.create({
-        data: {
-          code,
-          type: typeEnum,
-          amount: Number(amount || 0),
-          category: category || (typeEnum === 'INCOME' ? 'Thu nhập khác' : 'Chi phí khác'),
-          partnerType: partnerType || 'other',
-          partnerName: partnerName || 'Khách lẻ',
-          partnerPhone: partnerPhone || null,
-          partnerAddress: partnerAddress || null,
-          paymentMethod: paymentMethod || 'cash',
-          isAccounting: isAccounting !== false,
-          status: 'completed',
-          branch: branch || 'Chi nhánh trung tâm',
-          createdBy: createdBy || (req.user as any)?.fullName || req.user?.username || 'Thu ngân',
-          note: note || '',
-          userId: req.user!.id,
-          customerId: customerId ? Number(customerId) : null,
-          supplierId: supplierId ? Number(supplierId) : null,
-          tenantId,
-        },
-        include: { user: { select: { id: true, fullName: true } } },
+          // Update Customer debt
+          const debtChange = typeEnum === 'INCOME' ? -amountNum : amountNum;
+          const newDebt = Number(cust.totalDebt) + debtChange;
+          await tx.customer.update({
+            where: { id: cust.id },
+            data: { totalDebt: Math.max(0, newDebt) }
+          });
+        }
+
+        if (supplierId) {
+          const sup = await tx.supplier.findFirst({ where: { id: Number(supplierId), tenantId } });
+          if (!sup) throw new Error('Không tìm thấy nhà cung cấp của gian hàng này');
+
+          // Update Supplier debt
+          const debtChange = typeEnum === 'EXPENSE' ? -amountNum : amountNum;
+          const newDebt = Number(sup.totalDebt) + debtChange;
+          await tx.supplier.update({
+            where: { id: sup.id },
+            data: { totalDebt: Math.max(0, newDebt) }
+          });
+        }
+
+        // Auto-generate unique code per tenant
+        const count = await tx.cashbookEntry.count({
+          where: { tenantId, type: typeEnum },
+        });
+        const code = `${prefix}${String(count + 1).padStart(6, '0')}`;
+
+        return tx.cashbookEntry.create({
+          data: {
+            code,
+            type: typeEnum,
+            amount: amountNum,
+            category: category || (typeEnum === 'INCOME' ? 'Thu nhập khác' : 'Chi phí khác'),
+            partnerType: partnerType || 'other',
+            partnerName: partnerName || 'Khách lẻ',
+            partnerPhone: partnerPhone || null,
+            partnerAddress: partnerAddress || null,
+            paymentMethod: paymentMethod || 'cash',
+            isAccounting: isAccounting !== false,
+            status: 'completed',
+            branch: branch || 'Chi nhánh trung tâm',
+            createdBy: createdBy || (req.user as any)?.fullName || req.user?.username || 'Thu ngân',
+            note: note || '',
+            userId: req.user!.id,
+            customerId: customerId ? Number(customerId) : null,
+            supplierId: supplierId ? Number(supplierId) : null,
+            tenantId,
+          },
+          include: { user: { select: { id: true, fullName: true } } },
+        });
       });
 
       res.status(201).json(entry);
-    } catch (error) {
+    } catch (error: any) {
+      if (error.message === 'Không tìm thấy khách hàng của gian hàng này' || error.message === 'Không tìm thấy nhà cung cấp của gian hàng này') {
+        return res.status(404).json({ message: error.message });
+      }
       next(error);
     }
   },
@@ -145,17 +172,56 @@ export const cashbookController = {
       const tenantId = req.user!.tenantId;
       const id = Number(req.params.id);
 
-      const existingEntry = await prisma.cashbookEntry.findFirst({
-        where: { id, tenantId }
-      });
-      if (!existingEntry) return res.status(404).json({ message: 'Không tìm thấy phiếu quỹ' });
+      const entry = await prisma.$transaction(async (tx) => {
+        const existingEntry = await tx.cashbookEntry.findFirst({
+          where: { id, tenantId }
+        });
+        if (!existingEntry) throw new Error('Không tìm thấy phiếu quỹ');
+        if (existingEntry.status === 'cancelled') throw new Error('Phiếu quỹ đã được hủy trước đó');
 
-      const entry = await prisma.cashbookEntry.update({
-        where: { id },
-        data: { status: 'cancelled' },
+        const amountNum = Number(existingEntry.amount);
+        const typeEnum = existingEntry.type;
+
+        // Revert Customer debt if linked
+        if (existingEntry.customerId) {
+          const cust = await tx.customer.findFirst({ where: { id: existingEntry.customerId, tenantId } });
+          if (cust) {
+            const debtChange = typeEnum === 'INCOME' ? amountNum : -amountNum;
+            const newDebt = Number(cust.totalDebt) + debtChange;
+            await tx.customer.update({
+              where: { id: cust.id },
+              data: { totalDebt: Math.max(0, newDebt) }
+            });
+          }
+        }
+
+        // Revert Supplier debt if linked
+        if (existingEntry.supplierId) {
+          const sup = await tx.supplier.findFirst({ where: { id: existingEntry.supplierId, tenantId } });
+          if (sup) {
+            const debtChange = typeEnum === 'EXPENSE' ? amountNum : -amountNum;
+            const newDebt = Number(sup.totalDebt) + debtChange;
+            await tx.supplier.update({
+              where: { id: sup.id },
+              data: { totalDebt: Math.max(0, newDebt) }
+            });
+          }
+        }
+
+        return tx.cashbookEntry.update({
+          where: { id },
+          data: { status: 'cancelled' },
+        });
       });
+
       res.json({ message: 'Đã hủy phiếu thành công', entry });
-    } catch (error) {
+    } catch (error: any) {
+      if (error.message === 'Không tìm thấy phiếu quỹ') {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error.message === 'Phiếu quỹ đã được hủy trước đó') {
+        return res.status(400).json({ message: error.message });
+      }
       next(error);
     }
   },
