@@ -159,6 +159,14 @@ export const productController = {
       });
       if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
       
+      // Ensure SKU is unique if manually entered
+      if (data.sku && data.sku.trim() !== '') {
+        const existingSku = await prisma.product.findFirst({
+          where: { tenantId, sku: data.sku.trim(), isActive: true }
+        });
+        if (existingSku) return res.status(400).json({ message: 'Mã hàng hóa (SKU) đã tồn tại' });
+      }
+
       // Auto-generate sku if empty
       if (!data.sku || data.sku.trim() === '') {
         data.sku = `SP${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
@@ -207,6 +215,11 @@ export const productController = {
 
       if (data.sku === '') {
         delete data.sku; // Do not overwrite with empty string
+      } else if (data.sku) {
+        const existingSku = await prisma.product.findFirst({
+          where: { tenantId, sku: data.sku.trim(), id: { not: Number(req.params.id) }, isActive: true }
+        });
+        if (existingSku) return res.status(400).json({ message: 'Mã hàng hóa (SKU) đã tồn tại' });
       }
 
       const product = await prisma.product.update({
