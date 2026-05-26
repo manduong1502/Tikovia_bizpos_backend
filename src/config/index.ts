@@ -14,6 +14,6 @@ export const config = {
   pagination: {
     defaultPage: 1,
     defaultLimit: 20,
-    maxLimit: 100,
+    maxLimit: 5000,
   },
 };

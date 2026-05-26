@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { AuthRequest } from '../middlewares/auth';
 import { memoryCache } from '../utils/cache';
+import { config } from '../config';
 
 const returnItemSchema = z.object({
   productId: z.number().int(),
@@ -36,7 +37,7 @@ export const returnController = {
     try {
       const tenantId = (req as any).tenant!.id;
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
+      const limit = Math.min(config.pagination.maxLimit, parseInt(req.query.limit as string) || 20);
       const search = req.query.search as string;
 
       const where: any = { tenantId };
