@@ -22,32 +22,8 @@ export const tenantResolver = async (req: TenantRequest, res: Response, next: Ne
   }
 
   try {
-    // 1. Lấy subdomain từ header hoặc từ hostname
-    let subdomain = req.headers['x-tenant-subdomain'] as string;
-    
-    if (!subdomain && req.headers.host) {
-      const host = req.headers.host.split(':')[0].toLowerCase(); // Loại bỏ port nếu có
-      
-      if (host === 'localhost' || host === 'bizpos.tikovia.vn' || host === 'www.bizpos.tikovia.vn') {
-        subdomain = 'demo';
-      } else {
-        const parts = host.split('.');
-        if (host.endsWith('.bizpos.tikovia.vn')) {
-          const sub = parts[0];
-          if (sub !== 'www') subdomain = sub;
-        } else if (host.endsWith('.tikovia.vn') && parts.length === 3) {
-          const sub = parts[0];
-          if (sub !== 'www' && sub !== 'bizpos') subdomain = sub;
-        } else if (parts.length === 2 && parts[1] === 'localhost') {
-          subdomain = parts[0];
-        }
-      }
-    }
-
-    // Fallback cho local development nếu không có subdomain
-    if (!subdomain) {
-      subdomain = 'demo'; 
-    }
+    // Lấy subdomain từ header x-tenant-subdomain do frontend gửi lên, mặc định là 'demo'
+    let subdomain = (req.headers['x-tenant-subdomain'] as string) || 'demo';
 
     // 2. Tìm kiếm tenant trong Database
     const tenant = await prisma.tenant.findUnique({
