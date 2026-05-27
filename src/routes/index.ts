@@ -44,6 +44,7 @@ router.put('/customers/:id', authenticate, customerController.update);
 router.delete('/customers/:id', authenticate, authorize('ADMIN', 'MANAGER'), customerController.delete);
 
 // ─── Orders ───
+router.get('/orders/by-driver', orderController.getOrdersForDriver);
 router.get('/orders', authenticate, orderController.getAll);
 router.get('/orders/:id', authenticate, orderController.getById);
 router.post('/orders/import', authenticate, orderController.importExcel);

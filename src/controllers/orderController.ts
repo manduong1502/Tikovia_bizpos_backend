@@ -881,6 +881,59 @@ export const orderController = {
       next(error);
     }
   },
+
+  getOrdersForDriver: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = (req as any).tenant!.id;
+      
+      const dbOrders = await prisma.order.findMany({
+        where: {
+          tenantId,
+          status: 'SHIPPING'
+        },
+        include: {
+          customer: true,
+          items: {
+            include: {
+              product: {
+                select: { name: true }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const formatted = dbOrders.map(order => {
+        const items = (order.items || []).map((it: any) => {
+          const productName = it.product?.name || 'Sản phẩm';
+          return `${productName} (x${it.quantity})`;
+        });
+
+        return {
+          id: `DH-${order.code}`,
+          customerName: order.receiverName || order.customer?.name || 'Khách lẻ',
+          customerPhone: order.receiverPhone || order.customer?.phone || '',
+          address: order.deliveryAddress || order.customer?.address || 'Tại cửa hàng',
+          location: {
+            lat: 10.762622,
+            lng: 106.660172
+          },
+          orderValue: Number(order.total),
+          status: order.deliveryStatus || 'ASSIGNED',
+          driverId: order.driverId || '',
+          driverName: order.driverName || 'Chưa gán',
+          items,
+          note: order.note || '',
+          createdAt: order.createdAt.toISOString()
+        };
+      });
+
+      res.json(formatted);
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 // Helper function to sync order to driver app's Google Sheet
