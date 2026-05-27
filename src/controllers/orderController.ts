@@ -404,10 +404,17 @@ export const orderController = {
               paymentMethod: body.paymentMethod ?? 'CASH',
               note: body.note,
               items: { create: itemsData },
+              ...(body.status !== undefined && { status: body.status }),
+              ...(body.deliveryAddress !== undefined && { deliveryAddress: body.deliveryAddress }),
+              ...(body.receiverName !== undefined && { receiverName: body.receiverName }),
+              ...(body.receiverPhone !== undefined && { receiverPhone: body.receiverPhone }),
+              ...(body.driverId !== undefined && { driverId: body.driverId }),
+              ...(body.driverName !== undefined && { driverName: body.driverName }),
+              ...(body.deliveryStatus !== undefined && { deliveryStatus: body.deliveryStatus }),
             },
             include: {
               items: { include: { product: { select: { id: true, name: true } } } },
-              customer: { select: { id: true, name: true } },
+              customer: { select: { id: true, name: true, phone: true, address: true } },
             },
           });
 
@@ -477,6 +484,13 @@ export const orderController = {
           const dataToUpdate: any = {};
           if (body.note !== undefined) dataToUpdate.note = body.note;
           if (body.paymentMethod !== undefined) dataToUpdate.paymentMethod = body.paymentMethod;
+          if (body.status !== undefined) dataToUpdate.status = body.status;
+          if (body.deliveryAddress !== undefined) dataToUpdate.deliveryAddress = body.deliveryAddress;
+          if (body.receiverName !== undefined) dataToUpdate.receiverName = body.receiverName;
+          if (body.receiverPhone !== undefined) dataToUpdate.receiverPhone = body.receiverPhone;
+          if (body.driverId !== undefined) dataToUpdate.driverId = body.driverId;
+          if (body.driverName !== undefined) dataToUpdate.driverName = body.driverName;
+          if (body.deliveryStatus !== undefined) dataToUpdate.deliveryStatus = body.deliveryStatus;
           
           if (body.paid !== undefined) {
             const oldPaid = Number(order.paid);
@@ -540,13 +554,18 @@ export const orderController = {
             data: dataToUpdate,
             include: {
               items: { include: { product: { select: { id: true, sku: true, name: true } } } },
-              customer: { select: { id: true, name: true } },
+              customer: { select: { id: true, name: true, phone: true, address: true } },
             }
           });
         }
       });
 
       memoryCache.clearPattern(`tenant:${tenantId}:products`);
+      if (updatedOrder && updatedOrder.status === 'SHIPPING') {
+        syncOrderToDriverApp(updatedOrder).catch(err => {
+          console.error('Lỗi khi đồng bộ hóa đơn cập nhật sang app tài xế:', err);
+        });
+      }
       res.json(updatedOrder);
     } catch (error) {
       next(error);
