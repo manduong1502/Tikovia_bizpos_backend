@@ -169,6 +169,8 @@ model Customer {
   isActive        Boolean  @default(true)
   createdBy       String?
   lastTransaction DateTime?
+  latitude        Float?
+  longitude       Float?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -240,6 +242,8 @@ model Order {
   driverId        String?
   driverName      String?
   deliveryStatus  String?
+  latitude        Float?
+  longitude       Float?
 
   items   OrderItem[]
   returns Return[]

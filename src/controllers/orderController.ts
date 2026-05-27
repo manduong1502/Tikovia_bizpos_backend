@@ -26,6 +26,8 @@ const createOrderSchema = z.object({
   driverId: z.string().optional().nullable(),
   driverName: z.string().optional().nullable(),
   deliveryStatus: z.string().optional().nullable(),
+  latitude: z.coerce.number().optional().nullable(),
+  longitude: z.coerce.number().optional().nullable(),
 });
 
 const updateOrderSchema = z.object({
@@ -42,6 +44,8 @@ const updateOrderSchema = z.object({
   driverId: z.string().optional().nullable(),
   driverName: z.string().optional().nullable(),
   deliveryStatus: z.string().optional().nullable(),
+  latitude: z.coerce.number().optional().nullable(),
+  longitude: z.coerce.number().optional().nullable(),
 });
 
 // Auto-generate order code using SequenceTracker scoped by tenantId
@@ -184,12 +188,18 @@ export const orderController = {
 
         const total = subtotal - body.discount;
         let customerName = 'Khách lẻ';
+        let orderLat: number | null = body.latitude || null;
+        let orderLng: number | null = body.longitude || null;
 
         if (body.customerId) {
           const cust = await tx.customer.findFirst({
             where: { id: body.customerId, tenantId }
           });
-          if (cust) customerName = cust.name;
+          if (cust) {
+            customerName = cust.name;
+            if (!orderLat) orderLat = cust.latitude;
+            if (!orderLng) orderLng = cust.longitude;
+          }
         }
 
         // Create order
@@ -212,12 +222,14 @@ export const orderController = {
             driverId: body.driverId || null,
             driverName: body.driverName || null,
             deliveryStatus: body.deliveryStatus || null,
+            latitude: orderLat,
+            longitude: orderLng,
             items: { create: itemsData },
             tenantId,
           },
           include: {
             items: { include: { product: { select: { id: true, name: true } } } },
-            customer: { select: { id: true, name: true, phone: true, address: true } },
+            customer: { select: { id: true, name: true, phone: true, address: true, latitude: true, longitude: true } },
           },
         });
 
@@ -411,10 +423,12 @@ export const orderController = {
               ...(body.driverId !== undefined && { driverId: body.driverId }),
               ...(body.driverName !== undefined && { driverName: body.driverName }),
               ...(body.deliveryStatus !== undefined && { deliveryStatus: body.deliveryStatus }),
+              ...(body.latitude !== undefined && { latitude: body.latitude }),
+              ...(body.longitude !== undefined && { longitude: body.longitude }),
             },
             include: {
               items: { include: { product: { select: { id: true, name: true } } } },
-              customer: { select: { id: true, name: true, phone: true, address: true } },
+              customer: { select: { id: true, name: true, phone: true, address: true, latitude: true, longitude: true } },
             },
           });
 
@@ -491,6 +505,8 @@ export const orderController = {
           if (body.driverId !== undefined) dataToUpdate.driverId = body.driverId;
           if (body.driverName !== undefined) dataToUpdate.driverName = body.driverName;
           if (body.deliveryStatus !== undefined) dataToUpdate.deliveryStatus = body.deliveryStatus;
+          if (body.latitude !== undefined) dataToUpdate.latitude = body.latitude;
+          if (body.longitude !== undefined) dataToUpdate.longitude = body.longitude;
           
           if (body.paid !== undefined) {
             const oldPaid = Number(order.paid);
@@ -554,7 +570,7 @@ export const orderController = {
             data: dataToUpdate,
             include: {
               items: { include: { product: { select: { id: true, sku: true, name: true } } } },
-              customer: { select: { id: true, name: true, phone: true, address: true } },
+              customer: { select: { id: true, name: true, phone: true, address: true, latitude: true, longitude: true } },
             }
           });
         }
@@ -926,8 +942,8 @@ export const orderController = {
           customerPhone: order.receiverPhone || order.customer?.phone || '',
           address: order.deliveryAddress || order.customer?.address || 'Tại cửa hàng',
           location: {
-            lat: 10.762622,
-            lng: 106.660172
+            lat: order.latitude || order.customer?.latitude || 10.762622,
+            lng: order.longitude || order.customer?.longitude || 106.660172
           },
           orderValue: Number(order.total),
           status: order.deliveryStatus || 'ASSIGNED',
@@ -961,8 +977,8 @@ async function syncOrderToDriverApp(order: any) {
     customerPhone: order.receiverPhone || order.customer?.phone || '',
     address: order.deliveryAddress || order.customer?.address || 'Tại cửa hàng',
     location: {
-      lat: 10.762622 + (Math.random() - 0.5) * 0.04,
-      lng: 106.660172 + (Math.random() - 0.5) * 0.04,
+      lat: order.latitude || order.customer?.latitude || 10.762622,
+      lng: order.longitude || order.customer?.longitude || 106.660172,
     },
     orderValue: Number(order.total),
     status: 'ASSIGNED',

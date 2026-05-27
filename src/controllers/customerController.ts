@@ -27,6 +27,8 @@ const customerSchema = z.object({
     return true;
   }, z.boolean().optional()),
   createdBy: z.string().optional().nullable(),
+  latitude: z.preprocess((val) => val === undefined || val === '' || val === null ? null : Number(val), z.number().optional().nullable()),
+  longitude: z.preprocess((val) => val === undefined || val === '' || val === null ? null : Number(val), z.number().optional().nullable()),
 });
 
 function parseExcelDate(val: any): Date | null {
@@ -249,6 +251,8 @@ export const customerController = {
             createdBy: item.createdBy || null,
             lastTransaction: parseExcelDate(item.lastTransaction),
             createdAt: parseExcelDate(item.createdAt) || new Date(),
+            latitude: item.latitude !== undefined && item.latitude !== null && item.latitude !== '' ? Number(item.latitude) : null,
+            longitude: item.longitude !== undefined && item.longitude !== null && item.longitude !== '' ? Number(item.longitude) : null,
           };
 
           const ex = await tx.customer.findUnique({
