@@ -886,10 +886,20 @@ export const orderController = {
     try {
       const tenantId = (req as any).tenant!.id;
       
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
       const dbOrders = await prisma.order.findMany({
         where: {
           tenantId,
-          status: 'SHIPPING'
+          OR: [
+            { status: 'SHIPPING' },
+            {
+              status: { in: ['COMPLETED', 'CANCELLED'] },
+              deliveryStatus: { in: ['DELIVERED', 'CANCELED'] },
+              updatedAt: { gte: todayStart }
+            }
+          ]
         },
         include: {
           customer: true,
