@@ -356,6 +356,7 @@ export const orderController = {
       const tenantId = req.user!.tenantId;
       const id = Number(req.params.id);
       const body = updateOrderSchema.parse(req.body);
+      console.log(`[UPDATE ORDER API] id=${id}, tenantId=${tenantId}, body:`, JSON.stringify(body, null, 2));
       
       const order = await prisma.order.findFirst({
         where: { id, tenantId },
