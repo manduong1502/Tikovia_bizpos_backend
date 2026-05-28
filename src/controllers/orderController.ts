@@ -514,6 +514,14 @@ export const orderController = {
             const newPaid = Number(body.paid);
             dataToUpdate.paid = newPaid;
             
+            const orderTotal = Number(order.total);
+            if (newPaid >= orderTotal) {
+              dataToUpdate.status = 'COMPLETED';
+              if (order.deliveryStatus) {
+                dataToUpdate.deliveryStatus = 'DELIVERED';
+              }
+            }
+            
             // Update customer debt if any
             if (order.customerId) {
               const diffPaid = newPaid - oldPaid;
