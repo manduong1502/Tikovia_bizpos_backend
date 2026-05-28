@@ -33,7 +33,7 @@ services:
       JWT_EXPIRES_IN: "7d"
       PORT: "4001"
       NODE_ENV: "production"
-      CORS_ORIGIN: "https://bizpos.tikovia.vn,http://localhost:5173"
+      CORS_ORIGIN: "https://bizpos.tikovia.vn,http://localhost:5173,https://delivery.tikovia.vn,http://localhost:3000,http://localhost:8080"
     depends_on:
       bizpos-db:
         condition: service_healthy
