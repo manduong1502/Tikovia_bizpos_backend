@@ -892,6 +892,50 @@ export const orderController = {
         });
       });
 
+      // Create and send real-time notification
+      try {
+        let notifTitle = 'Cập nhật đơn hàng';
+        let notifMessage = `Đơn hàng ${code} có cập nhật trạng thái mới.`;
+        const driverNameStr = updated.driverName || driverName || 'Tài xế';
+
+        if (deliveryStatus === 'DELIVERING') {
+          notifTitle = 'Đơn hàng đang giao';
+          notifMessage = `Tài xế ${driverNameStr} đã nhận giao đơn hàng ${code}.`;
+        } else if (deliveryStatus === 'DELIVERED') {
+          const finalPaid = Number(codAmount ?? order.total);
+          notifTitle = 'Giao hàng thành công';
+          notifMessage = `Đơn hàng ${code} đã được giao thành công bởi tài xế ${driverNameStr}. Thu COD: ${finalPaid.toLocaleString('vi-VN')} đ.`;
+        } else if (deliveryStatus === 'CANCELED') {
+          notifTitle = 'Giao hàng thất bại / Hủy';
+          notifMessage = `Đơn hàng ${code} bị hủy hoặc giao thất bại bởi tài xế ${driverNameStr}.`;
+        }
+
+        const notification = await prisma.notification.create({
+          data: {
+            tenantId,
+            title: notifTitle,
+            message: notifMessage,
+            type: 'ORDER_STATUS',
+            isRead: false,
+          }
+        });
+
+        // Broadcast to tenant socket room
+        const io = req.app.get('io');
+        if (io) {
+          const roomName = `tenant_${tenantId}`;
+          io.to(roomName).emit('notification', notification);
+          io.to(roomName).emit('order_updated', {
+            orderId: updated.id,
+            code: updated.code,
+            status: updated.status,
+            deliveryStatus: updated.deliveryStatus
+          });
+        }
+      } catch (err) {
+        console.error('Lỗi khi tạo/phát thông báo thời gian thực:', err);
+      }
+
       res.json(updated);
     } catch (error) {
       next(error);

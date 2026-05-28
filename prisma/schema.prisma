@@ -38,6 +38,7 @@ model Tenant {
   cashbookEntries  CashbookEntry[]
   sequenceTrackers SequenceTracker[]
   cashbookPartners CashbookPartner[]
+  notifications    Notification[]
 }
 
 // ─── Người dùng / Nhân viên ───
@@ -558,4 +559,19 @@ model SuperAdmin {
   fullName  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── Thông báo (Real-time Notifications) ───
+model Notification {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("ORDER_STATUS") // ORDER_STATUS, SYSTEM, etc.
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, isRead])
 }

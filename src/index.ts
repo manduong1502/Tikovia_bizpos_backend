@@ -3,12 +3,17 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
+import { createServer } from 'http';
 import { config } from './config';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
 import { tenantResolver } from './middlewares/tenant';
+import { initSocket } from './services/socket';
 
 const app = express();
+const server = createServer(app);
+const io = initSocket(server);
+app.set('io', io);
 
 // ─── Security ───
 app.use(helmet());
@@ -45,7 +50,7 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // ─── Start server ───
-app.listen(config.port, '0.0.0.0', () => {
+server.listen(config.port, '0.0.0.0', () => {
   console.log(`
   🚀 Tiko BizPOS Backend đang chạy!
   📍 Port: ${config.port}
