@@ -404,6 +404,13 @@ export const orderController = {
           const total = subtotal - (body.discount ?? 0);
           const paid = body.paid ?? total;
 
+          let statusToUpdate = body.status;
+          let deliveryStatusToUpdate = body.deliveryStatus;
+          if (paid > 0 && paid >= total) {
+            statusToUpdate = 'COMPLETED';
+            deliveryStatusToUpdate = null;
+          }
+
           // 4. Update order
           const newOrder = await tx.order.update({
             where: { id },
@@ -417,13 +424,13 @@ export const orderController = {
               paymentMethod: body.paymentMethod ?? 'CASH',
               note: body.note,
               items: { create: itemsData },
-              ...(body.status !== undefined && { status: body.status }),
+              ...(statusToUpdate !== undefined && { status: statusToUpdate }),
               ...(body.deliveryAddress !== undefined && { deliveryAddress: body.deliveryAddress }),
               ...(body.receiverName !== undefined && { receiverName: body.receiverName }),
               ...(body.receiverPhone !== undefined && { receiverPhone: body.receiverPhone }),
               ...(body.driverId !== undefined && { driverId: body.driverId }),
               ...(body.driverName !== undefined && { driverName: body.driverName }),
-              ...(body.deliveryStatus !== undefined && { deliveryStatus: body.deliveryStatus }),
+              ...((paid > 0 && paid >= total) ? { deliveryStatus: null } : (deliveryStatusToUpdate !== undefined && { deliveryStatus: deliveryStatusToUpdate })),
               ...(body.latitude !== undefined && { latitude: body.latitude }),
               ...(body.longitude !== undefined && { longitude: body.longitude }),
             },
@@ -517,9 +524,7 @@ export const orderController = {
             const orderTotal = Number(order.total);
             if (newPaid >= orderTotal) {
               dataToUpdate.status = 'COMPLETED';
-              if (order.deliveryStatus) {
-                dataToUpdate.deliveryStatus = 'DELIVERED';
-              }
+              dataToUpdate.deliveryStatus = null;
             }
             
             // Update customer debt if any
@@ -983,7 +988,10 @@ export const orderController = {
         where: {
           tenantId,
           OR: [
-            { status: 'SHIPPING' },
+            { 
+              status: 'SHIPPING',
+              paid: 0
+            },
             {
               status: { in: ['COMPLETED', 'CANCELLED'] },
               deliveryStatus: { in: ['DELIVERED', 'CANCELED'] },
