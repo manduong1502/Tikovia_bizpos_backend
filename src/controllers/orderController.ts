@@ -582,6 +582,23 @@ export const orderController = {
           console.error('Lỗi khi đồng bộ hóa đơn cập nhật sang app tài xế:', err);
         });
       }
+
+      // Phát sự kiện cập nhật đơn hàng thời gian thực
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          const roomName = `tenant_${tenantId}`;
+          io.to(roomName).emit('order_updated', {
+            orderId: updatedOrder.id,
+            code: updatedOrder.code,
+            status: updatedOrder.status,
+            deliveryStatus: updatedOrder.deliveryStatus
+          });
+        }
+      } catch (err) {
+        console.error('Lỗi khi phát socket cập nhật hóa đơn:', err);
+      }
+
       res.json(updatedOrder);
     } catch (error) {
       next(error);
