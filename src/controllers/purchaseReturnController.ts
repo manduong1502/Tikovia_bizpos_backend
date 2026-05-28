@@ -219,5 +219,109 @@ export const purchaseReturnController = {
     } catch (error) {
       next(error);
     }
+  },
+
+  // PUT /api/purchase-returns/:id
+  update: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.user!.tenantId;
+      const id = Number(req.params.id);
+      const { note, receivedBy, status } = req.body;
+
+      const pr = await prisma.purchaseReturn.findFirst({
+        where: { id, tenantId },
+      });
+      if (!pr) return res.status(404).json({ message: 'Không tìm thấy phiếu trả hàng nhập' });
+
+      const updateData: any = {};
+      if (note !== undefined) updateData.note = note;
+      if (receivedBy !== undefined) updateData.receivedBy = receivedBy;
+      if (status !== undefined) updateData.status = status;
+
+      const updated = await prisma.purchaseReturn.update({
+        where: { id },
+        data: updateData,
+        include: {
+          items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
+          supplier: true,
+          purchaseOrder: { select: { id: true, code: true } }
+        }
+      });
+      res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // PUT /api/purchase-returns/:id/cancel
+  cancel: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.user!.tenantId;
+      const id = Number(req.params.id);
+
+      const pr = await prisma.purchaseReturn.findFirst({
+        where: { id, tenantId },
+        include: { items: true },
+      });
+      if (!pr) return res.status(404).json({ message: 'Không tìm thấy phiếu trả hàng nhập' });
+      if (pr.status === 'CANCELLED') return res.status(400).json({ message: 'Phiếu trả hàng nhập đã hủy trước đó' });
+
+      await prisma.$transaction(async (tx) => {
+        await tx.purchaseReturn.update({
+          where: { id },
+          data: { status: 'CANCELLED' },
+        });
+
+        if (pr.status === 'COMPLETED') {
+          // 1. Revert stock changes (increment stock since return decremented it)
+          for (const item of pr.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            });
+          }
+
+          // 2. Revert supplier debt (increment supplier debt since return decremented it)
+          const netReturn = Number(pr.total) - Number(pr.discount);
+          const debtReduction = netReturn - Number(pr.paid);
+          if (debtReduction !== 0) {
+            await tx.supplier.update({
+              where: { id: pr.supplierId },
+              data: { totalDebt: { increment: debtReduction } },
+            });
+          }
+
+          // 3. Revert associated cashbook entries (INCOME entry gets status: 'cancelled')
+          await tx.cashbookEntry.updateMany({
+            where: {
+              tenantId,
+              supplierId: pr.supplierId,
+              note: { contains: `Phiếu ${pr.code}` },
+              status: 'completed'
+            },
+            data: {
+              status: 'cancelled',
+              note: `Hủy theo phiếu trả hàng nhập bị hủy (${pr.code})`
+            }
+          });
+        }
+      });
+
+      memoryCache.clearPattern(`tenant:${tenantId}:products`);
+      res.json({ message: 'Đã hủy phiếu trả hàng nhập thành công' });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // DELETE /api/purchase-returns/:id
+  delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      return res.status(400).json({ 
+        message: 'Dữ liệu tài chính không được phép xóa vật lý. Vui lòng sử dụng tính năng Hủy phiếu.' 
+      });
+    } catch (error) {
+      next(error);
+    }
   }
 };

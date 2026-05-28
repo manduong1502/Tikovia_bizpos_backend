@@ -264,95 +264,99 @@ export const productController = {
   // POST /api/products/import
   importExcel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const items = req.body.items;
+      const items = req.body.items || [];
       const tenantId = req.user!.tenantId;
       let importedCount = 0;
 
-      await prisma.$transaction(async (tx) => {
-        for (const item of items) {
-          const sku = item.sku && item.sku.trim() !== '' ? item.sku.trim() : `SP${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
-          
-          // 1. Resolve Category
-          let categoryId = item.categoryId || null;
-          if (!categoryId && item.category_name) {
-            const catName = item.category_name.trim();
-            let cat = await tx.category.findFirst({ where: { tenantId, name: catName } });
-            if (!cat) {
-              cat = await tx.category.create({ data: { name: catName, tenantId } });
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        await prisma.$transaction(async (tx) => {
+          for (const item of chunk) {
+            const sku = item.sku && item.sku.trim() !== '' ? item.sku.trim() : `SP${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+            
+            // 1. Resolve Category
+            let categoryId = item.categoryId || null;
+            if (!categoryId && item.category_name) {
+              const catName = item.category_name.trim();
+              let cat = await tx.category.findFirst({ where: { tenantId, name: catName } });
+              if (!cat) {
+                cat = await tx.category.create({ data: { name: catName, tenantId } });
+              }
+              categoryId = cat.id;
             }
-            categoryId = cat.id;
-          }
 
-          // 2. Resolve Brand
-          let brandId = item.brandId || null;
-          if (!brandId && item.brand_name) {
-            const brandName = item.brand_name.trim();
-            let br = await tx.brand.findFirst({ where: { tenantId, name: brandName } });
-            if (!br) {
-              br = await tx.brand.create({ data: { name: brandName, tenantId } });
+            // 2. Resolve Brand
+            let brandId = item.brandId || null;
+            if (!brandId && item.brand_name) {
+              const brandName = item.brand_name.trim();
+              let br = await tx.brand.findFirst({ where: { tenantId, name: brandName } });
+              if (!br) {
+                br = await tx.brand.create({ data: { name: brandName, tenantId } });
+              }
+              brandId = br.id;
             }
-            brandId = br.id;
-          }
 
-          // 3. Resolve Supplier
-          let supplierId = item.supplierId || null;
-          if (!supplierId && item.supplier_name) {
-            const supName = item.supplier_name.trim();
-            let sup = await tx.supplier.findFirst({ where: { tenantId, name: supName } });
-            if (!sup) {
-              sup = await tx.supplier.create({ data: { code: `NCC${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`, name: supName, tenantId } });
+            // 3. Resolve Supplier
+            let supplierId = item.supplierId || null;
+            if (!supplierId && item.supplier_name) {
+              const supName = item.supplier_name.trim();
+              let sup = await tx.supplier.findFirst({ where: { tenantId, name: supName } });
+              if (!sup) {
+                sup = await tx.supplier.create({ data: { code: `NCC${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`, name: supName, tenantId } });
+              }
+              supplierId = sup.id;
             }
-            supplierId = sup.id;
-          }
 
-          const productData = {
-            name: item.name,
-            barcode: item.barcode || null,
-            categoryId,
-            brandId,
-            supplierId,
-            costPrice: item.costPrice !== undefined ? Number(item.costPrice) : 0,
-            sellPrice: item.sellPrice !== undefined ? Number(item.sellPrice) : 0,
-            stock: item.stock !== undefined ? Number(item.stock) : 0,
-            minStock: item.minStock !== undefined ? Number(item.minStock) : 0,
-            maxStock: item.maxStock !== undefined ? Number(item.maxStock) : 999999999,
-            unit: item.unit || 'Cái',
-            weight: item.weight !== undefined ? Number(item.weight) : null,
-            weightUnit: item.weightUnit || 'g',
-            location: item.location || null,
-            description: item.description || null,
-            note: item.note || null,
-            image: item.image || null,
-            isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
-            directSale: item.directSale !== undefined ? Boolean(item.directSale) : true,
-            createdAt: parseExcelDate(item.createdAt) || new Date(),
-            tenantId,
-          };
+            const productData = {
+              name: item.name,
+              barcode: item.barcode || null,
+              categoryId,
+              brandId,
+              supplierId,
+              costPrice: item.costPrice !== undefined ? Number(item.costPrice) : 0,
+              sellPrice: item.sellPrice !== undefined ? Number(item.sellPrice) : 0,
+              stock: item.stock !== undefined ? Number(item.stock) : 0,
+              minStock: item.minStock !== undefined ? Number(item.minStock) : 0,
+              maxStock: item.maxStock !== undefined ? Number(item.maxStock) : 999999999,
+              unit: item.unit || 'Cái',
+              weight: item.weight !== undefined ? Number(item.weight) : null,
+              weightUnit: item.weightUnit || 'g',
+              location: item.location || null,
+              description: item.description || null,
+              note: item.note || null,
+              image: item.image || null,
+              isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
+              directSale: item.directSale !== undefined ? Boolean(item.directSale) : true,
+              createdAt: parseExcelDate(item.createdAt) || new Date(),
+              tenantId,
+            };
 
-          const ex = await tx.product.findUnique({
-            where: {
-              tenantId_sku: {
-                tenantId,
-                sku,
-              },
-            },
-          });
-          if (ex) {
-            await tx.product.update({
-              where: { id: ex.id },
-              data: productData,
-            });
-          } else {
-            await tx.product.create({
-              data: {
-                sku,
-                ...productData,
+            const ex = await tx.product.findUnique({
+              where: {
+                tenantId_sku: {
+                  tenantId,
+                  sku,
+                },
               },
             });
+            if (ex) {
+              await tx.product.update({
+                where: { id: ex.id },
+                data: productData,
+              });
+            } else {
+              await tx.product.create({
+                data: {
+                  sku,
+                  ...productData,
+                },
+              });
+            }
+            importedCount++;
           }
-          importedCount++;
-        }
-      });
+        });
+      }
 
       memoryCache.clearPattern(`tenant:${tenantId}:products`);
       memoryCache.delete(memoryCache.tenantKey(tenantId, 'categories:all'));

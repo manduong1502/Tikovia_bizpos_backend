@@ -591,183 +591,187 @@ export const orderController = {
   importExcel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tenantId;
-      const orders = req.body.orders || req.body.items;
+      const orders = req.body.orders || req.body.items || [];
       let importedCount = 0;
 
-      await prisma.$transaction(async (tx) => {
-        for (const orderData of orders) {
-          const code = orderData.code || orderData.order_code || await generateOrderCode(tenantId, tx);
-          
-          // 1. Resolve Customer
-          let customerId = orderData.customerId || null;
-          if (!customerId && (orderData.customer_code || orderData.customer_name || orderData.customer_phone)) {
-            const custCode = orderData.customer_code || `KH${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 1000)}`;
-            const custPhone = orderData.customer_phone || null;
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < orders.length; i += CHUNK_SIZE) {
+        const chunk = orders.slice(i, i + CHUNK_SIZE);
+        await prisma.$transaction(async (tx) => {
+          for (const orderData of chunk) {
+            const code = orderData.code || orderData.order_code || await generateOrderCode(tenantId, tx);
             
-            let existingCust = null;
-            if (custCode && custCode !== 'KH...') {
-              existingCust = await tx.customer.findUnique({
-                where: {
-                  tenantId_code: {
-                    tenantId,
-                    code: custCode,
+            // 1. Resolve Customer
+            let customerId = orderData.customerId || null;
+            if (!customerId && (orderData.customer_code || orderData.customer_name || orderData.customer_phone)) {
+              const custCode = orderData.customer_code || `KH${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 1000)}`;
+              const custPhone = orderData.customer_phone || null;
+              
+              let existingCust = null;
+              if (custCode && custCode !== 'KH...') {
+                existingCust = await tx.customer.findUnique({
+                  where: {
+                    tenantId_code: {
+                      tenantId,
+                      code: custCode,
+                    },
                   },
-                },
-              });
-            }
-            if (!existingCust && custPhone) {
-              existingCust = await tx.customer.findFirst({
-                where: { tenantId, phone: custPhone }
-              });
-            }
-
-            if (existingCust) {
-              customerId = existingCust.id;
-            } else {
-              const newCust = await tx.customer.create({
-                data: {
-                  code: custCode,
-                  name: orderData.customer_name || 'Khách lẻ',
-                  phone: custPhone,
-                  address: orderData.customer_address || null,
-                  tenantId,
-                }
-              });
-              customerId = newCust.id;
-            }
-          }
-
-          // 2. Resolve Items & Products
-          let subtotal = 0;
-          const itemsToCreate = [];
-
-          const itemsList = orderData.items || [];
-          for (const item of itemsList) {
-            let productId = item.productId;
-            if (!productId) {
-              const pSku = item.product_sku || `SP-HD-${code}-${Math.floor(Math.random() * 10000)}`;
-              let existingProd = await tx.product.findUnique({
-                where: {
-                  tenantId_sku: {
-                    tenantId,
-                    sku: pSku,
-                  },
-                },
-              });
-              if (!existingProd && item.product_name) {
-                existingProd = await tx.product.findFirst({
-                  where: { tenantId, name: item.product_name }
                 });
               }
-              if (existingProd) {
-                productId = existingProd.id;
+              if (!existingCust && custPhone) {
+                existingCust = await tx.customer.findFirst({
+                  where: { tenantId, phone: custPhone }
+                });
+              }
+
+              if (existingCust) {
+                customerId = existingCust.id;
               } else {
-                const newProd = await tx.product.create({
+                const newCust = await tx.customer.create({
                   data: {
-                    sku: pSku,
-                    name: item.product_name || 'Hàng hóa chung',
-                    sellPrice: item.price !== undefined ? item.price : (item.unit_price || 0),
-                    unit: item.unit || 'Cái',
+                    code: custCode,
+                    name: orderData.customer_name || 'Khách lẻ',
+                    phone: custPhone,
+                    address: orderData.customer_address || null,
                     tenantId,
                   }
                 });
-                productId = newProd.id;
+                customerId = newCust.id;
               }
             }
 
-            const qty = item.quantity ? Number(item.quantity) : 1;
-            const prc = item.price !== undefined ? Number(item.price) : Number(item.unit_price || 0);
-            const disc = item.discount ? Number(item.discount) : 0;
-            const itemTotal = qty * prc - disc;
-            subtotal += itemTotal;
+            // 2. Resolve Items & Products
+            let subtotal = 0;
+            const itemsToCreate = [];
 
-            itemsToCreate.push({
-              productId,
-              quantity: qty,
-              price: prc,
-              discount: disc,
-              total: itemTotal,
-            });
-
-            // Deduct stock
-            await tx.product.update({
-              where: { id: productId },
-              data: { stock: { decrement: qty } },
-            });
-          }
-
-          const total = subtotal - (orderData.discount || 0);
-          const paid = orderData.paid !== undefined ? orderData.paid : total;
-
-          // Check if order code already exists within same tenant
-          const existingOrder = await tx.order.findUnique({
-            where: {
-              tenantId_code: {
-                tenantId,
-                code,
-              },
-            },
-          });
-          if (existingOrder) {
-            // Delete old items and update
-            await tx.orderItem.deleteMany({ where: { orderId: existingOrder.id } });
-            await tx.order.update({
-              where: { id: existingOrder.id },
-              data: {
-                customerId,
-                userId: req.user!.id,
-                subtotal,
-                discount: orderData.discount || 0,
-                total,
-                paid,
-                paymentMethod: orderData.paymentMethod || 'CASH',
-                note: orderData.note || null,
-                branch: orderData.branch || null,
-                priceBook: orderData.priceBook || null,
-                channel: orderData.channel || null,
-                status: 'COMPLETED',
-                createdAt: parseExcelDate(orderData.createdAt) || new Date(),
-                items: { create: itemsToCreate },
+            const itemsList = orderData.items || [];
+            for (const item of itemsList) {
+              let productId = item.productId;
+              if (!productId) {
+                const pSku = item.product_sku || `SP-HD-${code}-${Math.floor(Math.random() * 10000)}`;
+                let existingProd = await tx.product.findUnique({
+                  where: {
+                    tenantId_sku: {
+                      tenantId,
+                      sku: pSku,
+                    },
+                  },
+                });
+                if (!existingProd && item.product_name) {
+                  existingProd = await tx.product.findFirst({
+                    where: { tenantId, name: item.product_name }
+                  });
+                }
+                if (existingProd) {
+                  productId = existingProd.id;
+                } else {
+                  const newProd = await tx.product.create({
+                    data: {
+                      sku: pSku,
+                      name: item.product_name || 'Hàng hóa chung',
+                      sellPrice: item.price !== undefined ? item.price : (item.unit_price || 0),
+                      unit: item.unit || 'Cái',
+                      tenantId,
+                    }
+                  });
+                  productId = newProd.id;
+                }
               }
-            });
-          } else {
-            await tx.order.create({
-              data: {
-                code,
-                customerId,
-                userId: req.user!.id,
-                subtotal,
-                discount: orderData.discount || 0,
-                total,
-                paid,
-                paymentMethod: orderData.paymentMethod || 'CASH',
-                note: orderData.note || null,
-                branch: orderData.branch || null,
-                priceBook: orderData.priceBook || null,
-                channel: orderData.channel || null,
-                status: 'COMPLETED',
-                createdAt: parseExcelDate(orderData.createdAt) || new Date(),
-                items: { create: itemsToCreate },
-                tenantId,
+
+              const qty = item.quantity ? Number(item.quantity) : 1;
+              const prc = item.price !== undefined ? Number(item.price) : Number(item.unit_price || 0);
+              const disc = item.discount ? Number(item.discount) : 0;
+              const itemTotal = qty * prc - disc;
+              subtotal += itemTotal;
+
+              itemsToCreate.push({
+                productId,
+                quantity: qty,
+                price: prc,
+                discount: disc,
+                total: itemTotal,
+              });
+
+              // Deduct stock
+              await tx.product.update({
+                where: { id: productId },
+                data: { stock: { decrement: qty } },
+              });
+            }
+
+            const total = subtotal - (orderData.discount || 0);
+            const paid = orderData.paid !== undefined ? orderData.paid : total;
+
+            // Check if order code already exists within same tenant
+            const existingOrder = await tx.order.findUnique({
+              where: {
+                tenantId_code: {
+                  tenantId,
+                  code,
+                },
               },
             });
-          }
+            if (existingOrder) {
+              // Delete old items and update
+              await tx.orderItem.deleteMany({ where: { orderId: existingOrder.id } });
+              await tx.order.update({
+                where: { id: existingOrder.id },
+                data: {
+                  customerId,
+                  userId: req.user!.id,
+                  subtotal,
+                  discount: orderData.discount || 0,
+                  total,
+                  paid,
+                  paymentMethod: orderData.paymentMethod || 'CASH',
+                  note: orderData.note || null,
+                  branch: orderData.branch || null,
+                  priceBook: orderData.priceBook || null,
+                  channel: orderData.channel || null,
+                  status: 'COMPLETED',
+                  createdAt: parseExcelDate(orderData.createdAt) || new Date(),
+                  items: { create: itemsToCreate },
+                }
+              });
+            } else {
+              await tx.order.create({
+                data: {
+                  code,
+                  customerId,
+                  userId: req.user!.id,
+                  subtotal,
+                  discount: orderData.discount || 0,
+                  total,
+                  paid,
+                  paymentMethod: orderData.paymentMethod || 'CASH',
+                  note: orderData.note || null,
+                  branch: orderData.branch || null,
+                  priceBook: orderData.priceBook || null,
+                  channel: orderData.channel || null,
+                  status: 'COMPLETED',
+                  createdAt: parseExcelDate(orderData.createdAt) || new Date(),
+                  items: { create: itemsToCreate },
+                  tenantId,
+                },
+              });
+            }
 
-          if (customerId) {
-            const debtChange = total - paid;
-            await tx.customer.update({
-              where: { id: customerId },
-              data: {
-                totalSpent: { increment: total },
-                totalOrders: { increment: 1 },
-                totalDebt: { increment: debtChange },
-              },
-            });
-          }
+            if (customerId) {
+              const debtChange = total - paid;
+              await tx.customer.update({
+                where: { id: customerId },
+                data: {
+                  totalSpent: { increment: total },
+                  totalOrders: { increment: 1 },
+                  totalDebt: { increment: debtChange },
+                },
+              });
+            }
 
-          importedCount++;
-        }
-      });
+            importedCount++;
+          }
+        });
+      }
 
       memoryCache.clearPattern(`tenant:${tenantId}:products`);
       res.status(201).json({ message: `Đã import thành công ${importedCount} hóa đơn`, count: importedCount });

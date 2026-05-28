@@ -15,7 +15,7 @@ import { inventoryCheckController } from '../controllers/inventoryCheckControlle
 import { reportController } from '../controllers/reportController';
 import { brandController } from '../controllers/brandController';
 import { tenantController } from '../controllers/tenantController';
-import { authenticate, authorize, authenticateSuperAdmin } from '../middlewares/auth';
+import { authenticate, authorize, authenticateSuperAdmin, authenticateDriverOrUser } from '../middlewares/auth';
 import notificationRoutes from './notifications';
 
 const router = Router();
@@ -45,12 +45,12 @@ router.put('/customers/:id', authenticate, customerController.update);
 router.delete('/customers/:id', authenticate, authorize('ADMIN', 'MANAGER'), customerController.delete);
 
 // ─── Orders ───
-router.get('/orders/by-driver', orderController.getOrdersForDriver);
+router.get('/orders/by-driver', authenticateDriverOrUser, orderController.getOrdersForDriver);
 router.get('/orders', authenticate, orderController.getAll);
 router.get('/orders/:id', authenticate, orderController.getById);
 router.post('/orders/import', authenticate, orderController.importExcel);
 router.post('/orders', authenticate, orderController.create);
-router.put('/orders/by-code/:code/driver-status', orderController.updateDriverStatus);
+router.put('/orders/by-code/:code/driver-status', authenticateDriverOrUser, orderController.updateDriverStatus);
 router.put('/orders/:id', authenticate, orderController.update);
 router.put('/orders/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), orderController.cancel);
 router.delete('/orders/:id', authenticate, orderController.delete);
@@ -83,6 +83,9 @@ router.delete('/purchase-orders/:id', authenticate, authorize('ADMIN', 'MANAGER'
 router.get('/purchase-returns', authenticate, purchaseReturnController.getAll);
 router.get('/purchase-returns/:id', authenticate, purchaseReturnController.getById);
 router.post('/purchase-returns', authenticate, authorize('ADMIN', 'MANAGER'), purchaseReturnController.create);
+router.put('/purchase-returns/:id', authenticate, authorize('ADMIN', 'MANAGER'), purchaseReturnController.update);
+router.put('/purchase-returns/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), purchaseReturnController.cancel);
+router.delete('/purchase-returns/:id', authenticate, authorize('ADMIN', 'MANAGER'), purchaseReturnController.delete);
 
 // ─── Returns (Trả hàng bán) ───
 router.get('/returns', authenticate, returnController.getAll);

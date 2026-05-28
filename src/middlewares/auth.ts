@@ -85,3 +85,30 @@ export const authenticateSuperAdmin = async (req: SuperAdminRequest, res: Respon
   }
 };
 
+// Middleware xác thực phối hợp: Cho phép JWT User thông thường HOẶC Driver dùng Shared Secret
+export const authenticateDriverOrUser = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      
+      // Kiểm tra nếu là Driver dùng Shared Secret
+      if (token === config.driverSharedSecret) {
+        req.user = {
+          id: 0,
+          username: 'driver',
+          role: 'STAFF',
+          tenantId: req.tenant?.id || 1
+        };
+        return next();
+      }
+    }
+    
+    // Nếu không khớp với driver secret, thử xác thực bằng JWT thông thường
+    return authenticate(req, res, next);
+  } catch (error) {
+    return res.status(401).json({ message: 'Lỗi xác thực quyền truy cập' });
+  }
+};
+
+

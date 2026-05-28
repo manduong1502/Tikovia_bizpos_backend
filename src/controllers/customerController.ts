@@ -229,57 +229,61 @@ export const customerController = {
 
   importExcel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const items = req.body.items;
+      const items = req.body.items || [];
       const tenantId = req.user!.tenantId;
       let importedCount = 0;
 
-      await prisma.$transaction(async (tx) => {
-        for (const item of items) {
-          const code = item.code && item.code.trim() !== '' ? item.code.trim() : `KH${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
-          
-          const customerData = {
-            name: item.name,
-            phone: item.phone || null,
-            email: item.email || null,
-            address: item.address || null,
-            note: item.note || null,
-            customerType: item.customerType || null,
-            branch: item.branch || null,
-            totalSpent: item.totalSpent !== undefined ? Number(item.totalSpent) : 0,
-            totalDebt: item.totalDebt !== undefined ? Number(item.totalDebt) : 0,
-            isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
-            createdBy: item.createdBy || null,
-            lastTransaction: parseExcelDate(item.lastTransaction),
-            createdAt: parseExcelDate(item.createdAt) || new Date(),
-            latitude: item.latitude !== undefined && item.latitude !== null && item.latitude !== '' ? Number(item.latitude) : null,
-            longitude: item.longitude !== undefined && item.longitude !== null && item.longitude !== '' ? Number(item.longitude) : null,
-          };
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        await prisma.$transaction(async (tx) => {
+          for (const item of chunk) {
+            const code = item.code && item.code.trim() !== '' ? item.code.trim() : `KH${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+            
+            const customerData = {
+              name: item.name,
+              phone: item.phone || null,
+              email: item.email || null,
+              address: item.address || null,
+              note: item.note || null,
+              customerType: item.customerType || null,
+              branch: item.branch || null,
+              totalSpent: item.totalSpent !== undefined ? Number(item.totalSpent) : 0,
+              totalDebt: item.totalDebt !== undefined ? Number(item.totalDebt) : 0,
+              isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
+              createdBy: item.createdBy || null,
+              lastTransaction: parseExcelDate(item.lastTransaction),
+              createdAt: parseExcelDate(item.createdAt) || new Date(),
+              latitude: item.latitude !== undefined && item.latitude !== null && item.latitude !== '' ? Number(item.latitude) : null,
+              longitude: item.longitude !== undefined && item.longitude !== null && item.longitude !== '' ? Number(item.longitude) : null,
+            };
 
-          const ex = await tx.customer.findUnique({
-            where: {
-              tenantId_code: {
-                tenantId,
-                code,
-              },
-            },
-          });
-          if (ex) {
-            await tx.customer.update({
-              where: { id: ex.id },
-              data: customerData,
-            });
-          } else {
-            await tx.customer.create({
-              data: {
-                code,
-                ...customerData,
-                tenantId,
+            const ex = await tx.customer.findUnique({
+              where: {
+                tenantId_code: {
+                  tenantId,
+                  code,
+                },
               },
             });
+            if (ex) {
+              await tx.customer.update({
+                where: { id: ex.id },
+                data: customerData,
+              });
+            } else {
+              await tx.customer.create({
+                data: {
+                  code,
+                  ...customerData,
+                  tenantId,
+                },
+              });
+            }
+            importedCount++;
           }
-          importedCount++;
-        }
-      });
+        });
+      }
 
       res.status(201).json({ message: `Đã import thành công ${importedCount} khách hàng`, count: importedCount });
     } catch (error) {

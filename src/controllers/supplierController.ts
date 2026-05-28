@@ -200,50 +200,54 @@ export const supplierController = {
       const tenantId = req.user!.tenantId;
       let importedCount = 0;
 
-      await prisma.$transaction(async (tx) => {
-        for (const item of items) {
-          const code = item.code && item.code.trim() !== '' ? item.code.trim() : `NCC${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
-          const totalSpent = Number(item.totalSpent || item.total_spent || 0);
-          const totalDebt = Number(item.totalDebt || item.debt || 0);
-          
-          const supplierData = {
-            name: item.name,
-            phone: item.phone || null,
-            email: item.email || null,
-            address: item.address || null,
-            note: item.note || null,
-            totalSpent,
-            totalDebt,
-            isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
-            createdBy: item.createdBy || item.created_by || 'Admin',
-            createdAt: item.createdAt ? parseExcelDate(item.createdAt) || new Date() : new Date(),
-          };
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        await prisma.$transaction(async (tx) => {
+          for (const item of chunk) {
+            const code = item.code && item.code.trim() !== '' ? item.code.trim() : `NCC${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+            const totalSpent = Number(item.totalSpent || item.total_spent || 0);
+            const totalDebt = Number(item.totalDebt || item.debt || 0);
+            
+            const supplierData = {
+              name: item.name,
+              phone: item.phone || null,
+              email: item.email || null,
+              address: item.address || null,
+              note: item.note || null,
+              totalSpent,
+              totalDebt,
+              isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
+              createdBy: item.createdBy || item.created_by || 'Admin',
+              createdAt: item.createdAt ? parseExcelDate(item.createdAt) || new Date() : new Date(),
+            };
 
-          const ex = await tx.supplier.findUnique({
-            where: {
-              tenantId_code: {
-                tenantId,
-                code,
-              },
-            },
-          });
-          if (ex) {
-            await tx.supplier.update({
-              where: { id: ex.id },
-              data: supplierData,
-            });
-          } else {
-            await tx.supplier.create({
-              data: {
-                code,
-                ...supplierData,
-                tenantId,
+            const ex = await tx.supplier.findUnique({
+              where: {
+                tenantId_code: {
+                  tenantId,
+                  code,
+                },
               },
             });
+            if (ex) {
+              await tx.supplier.update({
+                where: { id: ex.id },
+                data: supplierData,
+              });
+            } else {
+              await tx.supplier.create({
+                data: {
+                  code,
+                  ...supplierData,
+                  tenantId,
+                },
+              });
+            }
+            importedCount++;
           }
-          importedCount++;
-        }
-      });
+        });
+      }
 
       res.status(201).json({ message: `Đã import thành công ${importedCount} nhà cung cấp`, count: importedCount });
     } catch (error) {
