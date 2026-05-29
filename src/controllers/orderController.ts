@@ -843,46 +843,6 @@ export const orderController = {
         if (driverName !== undefined) updateData.driverName = driverName;
         if (deliveryStatus !== undefined) updateData.deliveryStatus = deliveryStatus;
 
-        // If deliveryStatus is completed (DELIVERED)
-        if (deliveryStatus === 'DELIVERED') {
-          updateData.status = 'COMPLETED'; // Transition order to COMPLETED
-        } else if (deliveryStatus === 'CANCELED') {
-          updateData.status = 'CANCELLED';
-          
-          // Restore stock
-          const orderWithItems = await tx.order.findUnique({
-            where: { id: order.id },
-            include: { items: true }
-          });
-          if (orderWithItems) {
-            for (const item of orderWithItems.items) {
-              await tx.product.update({
-                where: { id: item.productId },
-                data: { stock: { increment: item.quantity } }
-              });
-            }
-          }
-
-          // Revert customer spent & debt if order was cancelled
-          if (order.customerId) {
-            const oldDebtChange = Number(order.total) - Number(order.paid);
-            await tx.customer.update({
-              where: { id: order.customerId },
-              data: {
-                totalSpent: { decrement: order.total },
-                totalOrders: { decrement: 1 },
-                totalDebt: { decrement: oldDebtChange },
-              }
-            });
-          }
-
-          // Cancel associated cashbook entries
-          await tx.cashbookEntry.updateMany({
-            where: { tenantId, orderId: order.id, status: 'completed' },
-            data: { status: 'cancelled', note: 'Hủy theo đơn hàng bị hủy bởi tài xế' }
-          });
-        }
-
         return tx.order.update({
           where: { id: order.id },
           data: updateData
