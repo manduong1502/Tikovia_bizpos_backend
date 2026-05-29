@@ -116,7 +116,7 @@ export const orderController = {
         prisma.order.findMany({
           where,
           include: {
-            customer: { select: { id: true, name: true, phone: true } },
+            customer: { select: { id: true, name: true, phone: true, code: true } },
             user: { select: { id: true, fullName: true } },
             returns: { select: { code: true } },
             _count: { select: { items: true } },
@@ -229,7 +229,7 @@ export const orderController = {
           },
           include: {
             items: { include: { product: { select: { id: true, name: true } } } },
-            customer: { select: { id: true, name: true, phone: true, address: true, latitude: true, longitude: true } },
+            customer: { select: { id: true, name: true, phone: true, code: true, address: true, latitude: true, longitude: true } },
           },
         });
 
@@ -436,7 +436,7 @@ export const orderController = {
             },
             include: {
               items: { include: { product: { select: { id: true, name: true } } } },
-              customer: { select: { id: true, name: true, phone: true, address: true, latitude: true, longitude: true } },
+              customer: { select: { id: true, name: true, phone: true, code: true, address: true, latitude: true, longitude: true } },
             },
           });
 
@@ -584,7 +584,7 @@ export const orderController = {
             data: dataToUpdate,
             include: {
               items: { include: { product: { select: { id: true, sku: true, name: true } } } },
-              customer: { select: { id: true, name: true, phone: true, address: true, latitude: true, longitude: true } },
+              customer: { select: { id: true, name: true, phone: true, code: true, address: true, latitude: true, longitude: true } },
             }
           });
         }

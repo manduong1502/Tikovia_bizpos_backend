@@ -7,7 +7,7 @@ import { config } from '../config';
 
 const checkItemSchema = z.object({
   productId: z.number().int(),
-  actualQty: z.number().int().min(0),
+  actualQty: z.number().min(0),
   note: z.string().optional().nullable(),
 });
 
