@@ -162,7 +162,7 @@ export const returnController = {
 
           // nợ giảm = (tổng tiền hàng trả - phí trả hàng) - tiền thực tế trả khách
           const netRefund = total - body.discount;
-          const debtReduction = netRefund - body.paid;
+          const debtReduction = body.paid > 0 ? body.paid : netRefund;
           if (debtReduction !== 0) {
             await tx.customer.update({
               where: { id: body.customerId },
