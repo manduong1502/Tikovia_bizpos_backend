@@ -846,44 +846,6 @@ export const orderController = {
         // If deliveryStatus is completed (DELIVERED)
         if (deliveryStatus === 'DELIVERED') {
           updateData.status = 'COMPLETED'; // Transition order to COMPLETED
-          const finalPaid = Number(codAmount ?? order.total);
-          updateData.paid = finalPaid;
-
-          // Re-calculate customer metrics if we collected cash and it changed
-          if (order.customerId) {
-            const oldPaid = Number(order.paid);
-            const diffPaid = finalPaid - oldPaid;
-            await tx.customer.update({
-              where: { id: order.customerId },
-              data: {
-                totalDebt: { decrement: diffPaid }
-              }
-            });
-          }
-
-          // Create Cashbook entry
-          const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
-          const customerName = order.customerId ? order.customer?.name || 'Khách lẻ' : 'Khách lẻ';
-          
-          await tx.cashbookEntry.create({
-            data: {
-              code: cashbookCode,
-              type: 'INCOME',
-              amount: finalPaid,
-              category: 'Thu tiền khách trả',
-              partnerType: order.customerId ? 'customer' : 'other',
-              customerId: order.customerId || null,
-              partnerName: customerName,
-              paymentMethod: paymentMethod === 'TRANSFER' ? 'bank' : 'cash',
-              isAccounting: true,
-              status: 'completed',
-              branch: 'Chi nhánh trung tâm',
-              userId: order.userId,
-              orderId: order.id,
-              note: `Thu tiền COD đơn hàng ${code} (Tài xế giao thành công)`,
-              tenantId
-            }
-          });
         } else if (deliveryStatus === 'CANCELED') {
           updateData.status = 'CANCELLED';
           
