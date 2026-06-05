@@ -127,7 +127,10 @@ export const customerController = {
               orderBy: { createdAt: 'desc' }
             }
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [
+            { lastTransaction: { sort: 'desc', nulls: 'last' } },
+            { createdAt: 'desc' }
+          ],
         }),
         prisma.customer.count({ where }),
       ]);

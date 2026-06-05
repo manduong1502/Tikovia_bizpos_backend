@@ -255,6 +255,7 @@ export const orderController = {
               totalSpent: { increment: total },
               totalOrders: { increment: 1 },
               totalDebt: { increment: debtChange },
+              lastTransaction: new Date(),
             },
           });
         }
@@ -473,6 +474,7 @@ export const orderController = {
                 totalSpent: { increment: total },
                 totalOrders: { increment: 1 },
                 totalDebt: { increment: newDebtChange },
+                lastTransaction: new Date(),
               },
             });
           }

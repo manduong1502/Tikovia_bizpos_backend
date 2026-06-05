@@ -157,7 +157,10 @@ export const returnController = {
         if (body.customerId) {
           await tx.customer.update({
             where: { id: body.customerId },
-            data: { totalSpent: { decrement: total } },
+            data: { 
+              totalSpent: { decrement: total },
+              lastTransaction: new Date(),
+            },
           });
 
           // nợ giảm = (tổng tiền hàng trả - phí trả hàng) - tiền thực tế trả khách
