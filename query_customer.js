@@ -2,16 +2,36 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 async function check() {
   const c = await prisma.customer.findFirst({
-    where: { code: 'KH879644' },
+    where: {
+      OR: [
+        { code: 'KH001160' },
+        { name: { contains: 'THANH', mode: 'insensitive' } }
+      ]
+    },
     include: {
-      orders: true
+      orders: {
+        select: {
+          code: true,
+          createdAt: true
+        }
+      }
     }
   });
   console.log('Customer:', JSON.stringify(c, null, 2));
 
-  const allOrders = await prisma.order.findMany({
-    where: { customerId: c ? c.id : -1 }
+  // Let's also search for all customers with similar names
+  const similar = await prisma.customer.findMany({
+    where: {
+      name: { contains: 'Thanh', mode: 'insensitive' }
+    },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      phone: true,
+      isActive: true
+    }
   });
-  console.log('Orders found by customerId:', allOrders);
+  console.log('Similar customers:', similar);
 }
 check().finally(() => prisma.$disconnect());

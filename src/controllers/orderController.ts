@@ -191,12 +191,14 @@ export const orderController = {
         let orderLat: number | null = body.latitude || null;
         let orderLng: number | null = body.longitude || null;
 
+        let customerDebtBefore = 0;
         if (body.customerId) {
           const cust = await tx.customer.findFirst({
             where: { id: body.customerId, tenantId }
           });
           if (cust) {
             customerName = cust.name;
+            customerDebtBefore = Number(cust.totalDebt || 0);
             if (!orderLat) orderLat = cust.latitude;
             if (!orderLng) orderLng = cust.longitude;
           }
@@ -204,6 +206,7 @@ export const orderController = {
 
         // Create order
         const code = await generateOrderCode(tenantId, tx);
+        const debtChange = total - (body.paid ?? total);
         const newOrder = await tx.order.create({
           data: {
             code,
@@ -213,6 +216,8 @@ export const orderController = {
             discount: body.discount,
             total,
             paid: body.paid ?? total,
+            oldDebt: customerDebtBefore,
+            newDebt: customerDebtBefore + debtChange,
             paymentMethod: body.paymentMethod,
             note: body.note,
             status: body.status || 'COMPLETED',
@@ -404,6 +409,17 @@ export const orderController = {
           const total = subtotal - (body.discount ?? 0);
           const paid = body.paid ?? total;
 
+          let customerDebtBefore = 0;
+          if (body.customerId) {
+            const cust = await tx.customer.findUnique({
+              where: { id: body.customerId }
+            });
+            if (cust) {
+              customerDebtBefore = Number(cust.totalDebt || 0);
+            }
+          }
+          const newDebtChange = total - paid;
+
           let statusToUpdate = body.status;
           let deliveryStatusToUpdate = body.deliveryStatus;
           if (paid > 0 && paid >= total) {
@@ -421,6 +437,8 @@ export const orderController = {
               discount: body.discount ?? 0,
               total,
               paid,
+              oldDebt: customerDebtBefore,
+              newDebt: customerDebtBefore + newDebtChange,
               paymentMethod: body.paymentMethod ?? 'CASH',
               note: body.note,
               items: { create: itemsData },
@@ -534,6 +552,8 @@ export const orderController = {
                 where: { id: order.customerId },
                 data: { totalDebt: { decrement: diffPaid } }
               });
+              const storedOldDebt = Number(order.oldDebt || 0);
+              dataToUpdate.newDebt = storedOldDebt + orderTotal - newPaid;
             }
             
             // Sync Cashbook Entry

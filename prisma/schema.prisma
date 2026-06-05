@@ -229,6 +229,8 @@ model Order {
   discount      Decimal     @default(0) @db.Decimal(15, 2)
   total         Decimal     @default(0) @db.Decimal(15, 2)
   paid          Decimal     @default(0) @db.Decimal(15, 2)
+  oldDebt       Decimal?    @default(0) @db.Decimal(15, 2)
+  newDebt       Decimal?    @default(0) @db.Decimal(15, 2)
   paymentMethod PaymentMethod @default(CASH)
   note          String?
   branch        String?     // Chi nhánh
