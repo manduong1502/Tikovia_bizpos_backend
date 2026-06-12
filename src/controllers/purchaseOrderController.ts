@@ -54,7 +54,7 @@ export const purchaseOrderController = {
           where,
           include: {
             supplier: true,
-            items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+            items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
             _count: { select: { items: true } },
           },
           skip: (page - 1) * limit,
@@ -79,7 +79,7 @@ export const purchaseOrderController = {
         where: { id, tenantId },
         include: {
           supplier: true,
-          items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+          items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
         },
       });
       if (!po) return res.status(404).json({ message: 'Không tìm thấy phiếu nhập' });
@@ -137,7 +137,7 @@ export const purchaseOrderController = {
             tenantId,
           },
           include: {
-            items: { include: { product: { select: { id: true, name: true } } } },
+            items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
             supplier: { select: { id: true, name: true } }
           }
         });
@@ -273,7 +273,7 @@ export const purchaseOrderController = {
           where: { id },
           data: updateData,
           include: {
-            items: { include: { product: { select: { id: true, name: true } } } },
+            items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
             supplier: true
           }
         });

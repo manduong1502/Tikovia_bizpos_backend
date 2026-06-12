@@ -47,7 +47,7 @@ export const inventoryCheckController = {
           where,
           include: {
             user: { select: { id: true, fullName: true } },
-            items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+            items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
           },
           skip: (page - 1) * limit,
           take: limit,

@@ -79,7 +79,7 @@ export const returnController = {
         include: {
           customer: true,
           order: { select: { id: true, code: true } },
-          items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+          items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
         },
       });
       if (!returnDoc) return res.status(404).json({ message: 'Không tìm thấy đơn trả hàng' });
@@ -140,7 +140,7 @@ export const returnController = {
             tenantId,
           },
           include: {
-            items: { include: { product: { select: { id: true, name: true } } } },
+            items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
             customer: { select: { id: true, name: true } }
           }
         });

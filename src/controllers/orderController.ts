@@ -143,7 +143,7 @@ export const orderController = {
         include: {
           customer: true,
           user: { select: { id: true, fullName: true } },
-          items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+          items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
         },
       });
       if (!order) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
@@ -233,7 +233,7 @@ export const orderController = {
             tenantId,
           },
           include: {
-            items: { include: { product: { select: { id: true, name: true } } } },
+            items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
             customer: { select: { id: true, name: true, phone: true, code: true, address: true, latitude: true, longitude: true } },
           },
         });
@@ -454,7 +454,7 @@ export const orderController = {
               ...(body.longitude !== undefined && { longitude: body.longitude }),
             },
             include: {
-              items: { include: { product: { select: { id: true, name: true } } } },
+              items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
               customer: { select: { id: true, name: true, phone: true, code: true, address: true, latitude: true, longitude: true } },
             },
           });
@@ -605,7 +605,7 @@ export const orderController = {
             where: { id },
             data: dataToUpdate,
             include: {
-              items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+              items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
               customer: { select: { id: true, name: true, phone: true, code: true, address: true, latitude: true, longitude: true } },
             }
           });
