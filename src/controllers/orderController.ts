@@ -117,9 +117,7 @@ export const orderController = {
           where,
           include: {
             customer: { select: { id: true, name: true, phone: true, code: true } },
-            user: { select: { id: true, fullName: true } },
             returns: { select: { code: true } },
-            _count: { select: { items: true } },
           },
           skip: (page - 1) * limit,
           take: limit,
