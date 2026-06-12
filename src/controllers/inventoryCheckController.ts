@@ -80,18 +80,23 @@ export const inventoryCheckController = {
           }
         });
 
+        const productIds = body.items.map(it => it.productId);
+        const dbProducts = await tx.product.findMany({
+          where: {
+            id: { in: productIds },
+            tenantId
+          },
+          select: { id: true, stock: true }
+        });
+        const productMap = new Map(dbProducts.map(p => [p.id, p.stock]));
+
         const itemsToCreate = [];
+        const stockUpdates = [];
 
         for (const item of body.items) {
-          // Get current system qty scoped to tenant
-          const product = await tx.product.findFirst({
-            where: { id: item.productId, tenantId },
-            select: { stock: true }
-          });
+          const systemQty = productMap.get(item.productId);
+          if (systemQty === undefined) continue;
 
-          if (!product) continue;
-
-          const systemQty = product.stock;
           const difference = item.actualQty - systemQty;
 
           itemsToCreate.push({
@@ -103,11 +108,16 @@ export const inventoryCheckController = {
             note: item.note,
           });
 
-          // Update stock to actual
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: item.actualQty },
-          });
+          stockUpdates.push(
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stock: item.actualQty },
+            })
+          );
+        }
+        
+        if (stockUpdates.length > 0) {
+          await Promise.all(stockUpdates);
         }
         
         if (itemsToCreate.length > 0) {

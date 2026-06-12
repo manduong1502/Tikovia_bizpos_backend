@@ -144,12 +144,14 @@ export const purchaseOrderController = {
 
         // Nếu trạng thái là HOÀN THÀNH thì cập nhật kho và công nợ
         if (body.status === 'COMPLETED') {
-          for (const item of body.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            });
-          }
+          await Promise.all(
+            body.items.map(item =>
+              tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } },
+              })
+            )
+          );
 
           const debt = total - body.paid;
           if (debt > 0) {
@@ -223,12 +225,14 @@ export const purchaseOrderController = {
         // 1. Nếu phiếu nhập cũ đã COMPLETED, ta revert toàn bộ ảnh hưởng cũ trước
         if (oldPO.status === 'COMPLETED') {
           // Trừ kho hàng
-          for (const item of oldPO.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { decrement: item.quantity } },
-            });
-          }
+          await Promise.all(
+            oldPO.items.map(item =>
+              tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { decrement: item.quantity } },
+              })
+            )
+          );
           // Trừ nợ nhà cung cấp
           const oldDebt = Number(oldPO.total) - Number(oldPO.paid);
           if (oldDebt > 0) {
@@ -286,12 +290,14 @@ export const purchaseOrderController = {
         if (finalStatus === 'COMPLETED') {
           // Cộng kho mới
           const finalItems = await tx.purchaseOrderItem.findMany({ where: { purchaseOrderId: id } });
-          for (const item of finalItems) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            });
-          }
+          await Promise.all(
+            finalItems.map(item =>
+              tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } },
+              })
+            )
+          );
 
           // Cộng nợ nhà cung cấp mới
           const newDebt = total - finalPaid;
@@ -361,12 +367,14 @@ export const purchaseOrderController = {
 
         // Nếu hủy đơn đã hoàn thành thì trừ kho và nợ lại
         if (po.status === 'COMPLETED') {
-          for (const item of po.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { decrement: item.quantity } },
-            });
-          }
+          await Promise.all(
+            po.items.map(item =>
+              tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { decrement: item.quantity } },
+              })
+            )
+          );
 
           const debt = Number(po.total) - Number(po.paid);
           if (debt !== 0) {

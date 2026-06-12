@@ -170,12 +170,14 @@ export const purchaseReturnController = {
         });
 
         if (body.status === 'COMPLETED') {
-          for (const item of body.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { decrement: item.quantity } },
-            });
-          }
+          await Promise.all(
+            body.items.map(item =>
+              tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { decrement: item.quantity } },
+              })
+            )
+          );
 
           const netReturn = total - body.discount;
           const debtReduction = body.paid > 0 ? body.paid : netReturn;
@@ -274,12 +276,14 @@ export const purchaseReturnController = {
 
         if (pr.status === 'COMPLETED') {
           // 1. Revert stock changes (increment stock since return decremented it)
-          for (const item of pr.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            });
-          }
+          await Promise.all(
+            pr.items.map(item =>
+              tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } },
+              })
+            )
+          );
 
           // 2. Revert supplier debt (increment supplier debt since return decremented it)
           const netReturn = Number(pr.total) - Number(pr.discount);

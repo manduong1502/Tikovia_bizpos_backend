@@ -138,6 +138,7 @@ model Product {
   @@index([brandId])
   @@index([supplierId])
   @@index([isActive, categoryId])
+  @@index([tenantId, isActive])
 }
 
 // ─── Thương hiệu ───
@@ -318,6 +319,8 @@ model Return {
   @@index([orderId])
   @@index([createdAt])
   @@index([status, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status, createdAt])
 }
 
 enum ReturnStatus {
@@ -362,6 +365,8 @@ model PurchaseOrder {
   @@index([code])
   @@index([supplierId])
   @@index([createdAt])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status, createdAt])
 }
 
 enum PurchaseOrderStatus {
@@ -411,6 +416,8 @@ model PurchaseReturn {
   @@index([purchaseOrderId])
   @@index([supplierId])
   @@index([createdAt])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status, createdAt])
 }
 
 enum PurchaseReturnStatus {
@@ -454,6 +461,7 @@ model InventoryCheck {
   @@unique([tenantId, code])
   @@index([code])
   @@index([createdAt])
+  @@index([tenantId, createdAt])
 }
 
 model InventoryCheckItem {
@@ -520,6 +528,8 @@ model CashbookEntry {
   @@index([orderId])
   @@index([purchaseOrderId])
   @@index([type, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, type, createdAt])
 }
 
 enum CashbookType {

@@ -146,12 +146,14 @@ export const returnController = {
         });
 
         // Hoàn lại kho
-        for (const item of body.items) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
+        await Promise.all(
+          body.items.map(item =>
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            })
+          )
+        );
 
         // Cập nhật chi tiêu & nợ khách hàng
         if (body.customerId) {
@@ -249,12 +251,14 @@ export const returnController = {
         });
         
         // Hoàn lại kho (phiếu trả bị hủy nên phải trừ lại kho sản phẩm)
-        for (const item of ret.items) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { decrement: item.quantity } },
-          });
-        }
+        await Promise.all(
+          ret.items.map(item =>
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { decrement: item.quantity } },
+            })
+          )
+        );
         
         // Revert customer spent & debt
         if (ret.customerId) {
