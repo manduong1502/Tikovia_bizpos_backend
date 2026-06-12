@@ -238,13 +238,15 @@ export const orderController = {
           },
         });
 
-        // Deduct stock for each product
-        for (const item of body.items) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { decrement: item.quantity } },
-          });
-        }
+        // Deduct stock for each product in parallel
+        await Promise.all(
+          body.items.map((item) =>
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { decrement: item.quantity } },
+            })
+          )
+        );
 
         // Update Customer metrics if any
         if (body.customerId) {
@@ -321,13 +323,15 @@ export const orderController = {
           data: { status: 'CANCELLED' },
         });
 
-        // Restore stock
-        for (const item of order.items) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
+        // Restore stock in parallel
+        await Promise.all(
+          order.items.map((item) =>
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            })
+          )
+        );
 
         // Revert customer stats
         if (order.customerId) {
@@ -372,13 +376,15 @@ export const orderController = {
 
       const updatedOrder = await prisma.$transaction(async (tx) => {
         if (body.items) {
-          // 1. Revert old order effects
-          for (const item of order.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            });
-          }
+          // 1. Revert old order effects in parallel
+          await Promise.all(
+            order.items.map((item) =>
+              tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } },
+              })
+            )
+          );
           if (order.customerId) {
             const oldDebtChange = Number(order.total) - Number(order.paid);
             await tx.customer.update({
@@ -459,13 +465,15 @@ export const orderController = {
             },
           });
 
-          // 5. Apply new order effects
-          for (const item of body.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { decrement: item.quantity } },
-            });
-          }
+          // 5. Apply new order effects in parallel
+          await Promise.all(
+            body.items.map((item) =>
+              tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { decrement: item.quantity } },
+              })
+            )
+          );
           if (body.customerId) {
             const newDebtChange = total - paid;
             await tx.customer.update({
