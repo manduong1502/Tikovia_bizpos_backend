@@ -56,29 +56,18 @@ export const dashboardController = {
       const custRange = getRange(timeCust);
 
       // All queries run in parallel for speed, fully scoped by tenantId
+      // All queries run in parallel for speed, fully scoped by tenantId
       const [
-        todayOrders,
-        todayRevenue,
         todayReturns,
         totalProducts,
         lowStockProducts,
         totalCustomers,
         recentOrders,
-        monthlyRevenueAggr,
         prevMonthRevenueAggr,
         topProductsDb,
         topCustomersDb,
         dailyRevenuesDb
       ] = await Promise.all([
-        // Đơn hàng hôm nay
-        prisma.order.count({
-          where: { tenantId, createdAt: { gte: today, lt: tomorrow }, status: 'COMPLETED' },
-        }),
-        // Doanh thu hôm nay
-        prisma.order.aggregate({
-          where: { tenantId, createdAt: { gte: today, lt: tomorrow }, status: 'COMPLETED' },
-          _sum: { total: true },
-        }),
         // Trả hàng hôm nay
         prisma.return.count({
           where: { tenantId, createdAt: { gte: today, lt: tomorrow } },
@@ -100,11 +89,6 @@ export const dashboardController = {
             customer: { select: { name: true } },
             user: { select: { fullName: true } },
           },
-        }),
-        // Doanh thu tháng này
-        prisma.order.aggregate({
-          where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
-          _sum: { total: true },
         }),
         // Doanh thu tháng trước
         prisma.order.aggregate({
@@ -128,19 +112,37 @@ export const dashboardController = {
           orderBy: { _sum: { total: 'desc' } },
           take: 5,
         }),
-        // Doanh thu theo ngày trong tháng này
+        // Doanh thu theo ngày trong tháng này (tận dụng để tính toán doanh thu tháng này & hôm nay luôn)
         prisma.order.findMany({
           where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
           select: { createdAt: true, total: true }
         })
       ]);
 
-      // Process daily revenues manually
+      // Tính toán trực tiếp số liệu hôm nay và doanh thu tháng này từ dailyRevenuesDb
+      let todayOrders = 0;
+      let todayRevenueSum = 0;
+      let monthlyRevenueSum = 0;
+
       const dailyRevenuesMap = new Map();
       dailyRevenuesDb.forEach(order => {
-        const day = order.createdAt.getDate();
-        dailyRevenuesMap.set(day, (dailyRevenuesMap.get(day) || 0) + Number(order.total || 0));
+        const orderDate = new Date(order.createdAt);
+        const orderTotal = Number(order.total || 0);
+
+        // Cộng dồn doanh thu tháng này
+        monthlyRevenueSum += orderTotal;
+
+        // Cộng dồn biểu đồ doanh thu theo ngày
+        const day = orderDate.getDate();
+        dailyRevenuesMap.set(day, (dailyRevenuesMap.get(day) || 0) + orderTotal);
+
+        // Lọc kiểm tra đơn trong ngày hôm nay
+        if (orderDate >= today && orderDate < tomorrow) {
+          todayOrders++;
+          todayRevenueSum += orderTotal;
+        }
       });
+
       const daily_revenues = Array.from({ length: endOfMonth.getDate() }, (_, i) => ({
         day: i + 1,
         revenue: dailyRevenuesMap.get(i + 1) || 0
@@ -178,7 +180,7 @@ export const dashboardController = {
       res.json({
         todayStats: {
           orders: todayOrders,
-          revenue: Number(todayRevenue._sum.total || 0),
+          revenue: todayRevenueSum,
           returns: todayReturns,
         },
         overview: {
@@ -187,7 +189,7 @@ export const dashboardController = {
           totalCustomers,
         },
         recentOrders,
-        monthly_revenue: Number(monthlyRevenueAggr._sum.total || 0),
+        monthly_revenue: monthlyRevenueSum,
         prev_month_revenue: Number(prevMonthRevenueAggr._sum.total || 0),
         top_products,
         top_customers,
