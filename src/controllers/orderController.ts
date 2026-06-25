@@ -86,6 +86,49 @@ function parseExcelDate(val: any): Date | null {
   return null;
 }
 
+async function syncOrderToChatTikovia(order: any) {
+  const apiUrl = process.env.CHATTIKOVIA_API_URL;
+  const systemKey = process.env.CHATTIKOVIA_SYSTEM_KEY;
+
+  if (!apiUrl || !systemKey) {
+    console.warn('[ChatTikovia Sync] Thiếu cấu hình CHATTIKOVIA_API_URL hoặc CHATTIKOVIA_SYSTEM_KEY trong .env');
+    return;
+  }
+
+  try {
+    const payload = {
+      code: order.code,
+      customerName: order.customer?.name || 'Khách lẻ',
+      note: order.note || '',
+      subtotal: Number(order.subtotal || 0),
+      total: Number(order.total || 0),
+      items: (order.items || []).map((it: any) => ({
+        productName: it.product?.name || 'Sản phẩm',
+        quantity: Number(it.quantity || 1),
+        unit: it.product?.unit || 'cái'
+      }))
+    };
+
+    const res = await fetch(`${apiUrl}/integration/tasks/system-create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-System-Key': systemKey
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.ok) {
+      console.log(`[ChatTikovia Sync] Đồng bộ hóa đơn ${order.code} sang ChatTikovia thành công.`);
+    } else {
+      const errText = await res.text();
+      console.error(`[ChatTikovia Sync] Lỗi khi đồng bộ hóa đơn ${order.code} sang ChatTikovia:`, errText);
+    }
+  } catch (err) {
+    console.error(`[ChatTikovia Sync] Lỗi kết nối khi đồng bộ hóa đơn sang ChatTikovia:`, err);
+  }
+}
+
 export const orderController = {
   // GET /api/orders — phân trang + lọc
   getAll: async (req: Request, res: Response, next: NextFunction) => {
@@ -289,6 +332,12 @@ export const orderController = {
       });
 
       memoryCache.clearPattern(`tenant:${tenantId}:products`);
+      
+      // Đồng bộ đơn hàng sang ChatTikovia (Tự động giao việc cho Kho Đông Lạnh)
+      syncOrderToChatTikovia(order).catch(err => {
+        console.error('Lỗi khi đồng bộ đơn hàng sang ChatTikovia:', err);
+      });
+
       if (order.status === 'SHIPPING') {
         syncOrderToDriverApp(order).catch(err => {
           console.error('Lỗi khi đồng bộ đơn hàng sang app tài xế:', err);
