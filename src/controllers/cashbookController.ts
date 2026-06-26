@@ -110,7 +110,7 @@ export const cashbookController = {
           const newDebt = Number(cust.totalDebt) + debtChange;
           await tx.customer.update({
             where: { id: cust.id },
-            data: { totalDebt: Math.max(0, newDebt) }
+            data: { totalDebt: newDebt }
           });
         }
 
@@ -123,7 +123,7 @@ export const cashbookController = {
           const newDebt = Number(sup.totalDebt) + debtChange;
           await tx.supplier.update({
             where: { id: sup.id },
-            data: { totalDebt: Math.max(0, newDebt) }
+            data: { totalDebt: newDebt }
           });
         }
 
@@ -190,7 +190,7 @@ export const cashbookController = {
             const newDebt = Number(cust.totalDebt) + debtChange;
             await tx.customer.update({
               where: { id: cust.id },
-              data: { totalDebt: Math.max(0, newDebt) }
+              data: { totalDebt: newDebt }
             });
           }
         }
@@ -203,7 +203,7 @@ export const cashbookController = {
             const newDebt = Number(sup.totalDebt) + debtChange;
             await tx.supplier.update({
               where: { id: sup.id },
-              data: { totalDebt: Math.max(0, newDebt) }
+              data: { totalDebt: newDebt }
             });
           }
         }
