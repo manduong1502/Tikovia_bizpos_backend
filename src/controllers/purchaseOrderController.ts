@@ -154,7 +154,7 @@ export const purchaseOrderController = {
           );
 
           const debt = total - body.paid;
-          if (debt > 0) {
+          if (debt !== 0) {
             await tx.supplier.update({
               where: { id: body.supplierId },
               data: { totalDebt: { increment: debt } },

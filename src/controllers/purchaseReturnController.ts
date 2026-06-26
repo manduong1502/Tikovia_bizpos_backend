@@ -180,7 +180,7 @@ export const purchaseReturnController = {
           );
 
           const netReturn = total - body.discount;
-          const debtReduction = body.paid > 0 ? body.paid : netReturn;
+          const debtReduction = netReturn - body.paid;
           if (debtReduction !== 0) {
             await tx.supplier.update({
               where: { id: body.supplierId },
