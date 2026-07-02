@@ -241,11 +241,13 @@ export const purchaseOrderController = {
               data: { totalDebt: { decrement: oldDebt } },
             });
           }
-          // Hủy phiếu chi cũ
-          if (Number(oldPO.paid) > 0) {
+          // Hủy phiếu chi cũ chỉ khi có điều chỉnh giảm số tiền thanh toán
+          const newPaidVal = paid !== undefined ? Number(paid) : Number(oldPO.paid);
+          const oldPaidVal = Number(oldPO.paid);
+          if (newPaidVal < oldPaidVal && oldPaidVal > 0) {
             await tx.cashbookEntry.updateMany({
               where: { tenantId, purchaseOrderId: id, status: 'completed' },
-              data: { status: 'cancelled', note: 'Hủy thanh toán theo phiếu nhập cập nhật' }
+              data: { status: 'cancelled', note: 'Hủy thanh toán do điều chỉnh giảm số tiền' }
             });
           }
         }
@@ -308,8 +310,33 @@ export const purchaseOrderController = {
             });
           }
           
-          // Tạo phiếu chi mới nếu paid > 0
-          if (finalPaid > 0) {
+          // Tạo phiếu chi cho phần thanh toán tăng thêm hoặc tạo mới nếu bị hủy giảm
+          const oldPaidVal = Number(oldPO.paid);
+          const paidDiff = finalPaid - (finalPaid < oldPaidVal ? 0 : oldPaidVal);
+          if (paidDiff > 0) {
+            const supplierObj = await tx.supplier.findFirst({ where: { id: finalSupplierId, tenantId } });
+            const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+            
+            await tx.cashbookEntry.create({
+              data: {
+                code: cashbookCode,
+                type: 'EXPENSE',
+                amount: paidDiff,
+                category: 'Trả tiền nhà cung cấp',
+                partnerType: 'supplier',
+                supplierId: finalSupplierId,
+                partnerName: supplierObj ? supplierObj.name : 'Nhà cung cấp',
+                paymentMethod: 'cash',
+                isAccounting: true,
+                status: 'completed',
+                branch: 'Chi nhánh trung tâm',
+                userId: req.user!.id,
+                purchaseOrderId: id,
+                note: `Trả tiền nhập hàng ${newPO.code} (Cập nhật)`,
+                tenantId,
+              }
+            });
+          } else if (finalPaid < oldPaidVal && finalPaid > 0) {
             const supplierObj = await tx.supplier.findFirst({ where: { id: finalSupplierId, tenantId } });
             const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
             
@@ -328,7 +355,7 @@ export const purchaseOrderController = {
                 branch: 'Chi nhánh trung tâm',
                 userId: req.user!.id,
                 purchaseOrderId: id,
-                note: `Trả tiền nhập hàng ${newPO.code} (Cập nhật)`,
+                note: `Trả tiền nhập hàng ${newPO.code} (Điều chỉnh giảm)`,
                 tenantId,
               }
             });
