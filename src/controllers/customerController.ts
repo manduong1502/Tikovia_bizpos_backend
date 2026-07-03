@@ -175,6 +175,7 @@ export const customerController = {
           ...parsed,
           code,
           tenantId,
+          lastTransaction: new Date(),
         }
       });
       res.status(201).json(customer);

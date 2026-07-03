@@ -181,12 +181,13 @@ export const purchaseReturnController = {
 
           const netReturn = total - body.discount;
           const debtReduction = netReturn - body.paid;
-          if (debtReduction !== 0) {
-            await tx.supplier.update({
-              where: { id: body.supplierId },
-              data: { totalDebt: { decrement: debtReduction } },
-            });
-          }
+          await tx.supplier.update({
+            where: { id: body.supplierId },
+            data: {
+              ...(debtReduction !== 0 ? { totalDebt: { decrement: debtReduction } } : {}),
+              lastTransaction: new Date()
+            },
+          });
 
           if (body.paid > 0) {
             const cashbookCode = `PTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
@@ -288,12 +289,13 @@ export const purchaseReturnController = {
           // 2. Revert supplier debt (increment supplier debt since return decremented it)
           const netReturn = Number(pr.total) - Number(pr.discount);
           const debtReduction = netReturn - Number(pr.paid);
-          if (debtReduction !== 0) {
-            await tx.supplier.update({
-              where: { id: pr.supplierId },
-              data: { totalDebt: { increment: debtReduction } },
-            });
-          }
+          await tx.supplier.update({
+            where: { id: pr.supplierId },
+            data: {
+              ...(debtReduction !== 0 ? { totalDebt: { increment: debtReduction } } : {}),
+              lastTransaction: new Date()
+            },
+          });
 
           // 3. Revert associated cashbook entries (INCOME entry gets status: 'cancelled')
           await tx.cashbookEntry.updateMany({

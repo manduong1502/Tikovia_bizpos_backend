@@ -35,7 +35,10 @@ export const supplierController = {
       const tenantId = (req as any).tenant!.id;
       const suppliers = await prisma.supplier.findMany({
         where: { tenantId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [
+          { lastTransaction: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' }
+        ],
         include: {
           purchaseOrders: {
             where: { tenantId, status: 'COMPLETED' }
@@ -101,6 +104,7 @@ export const supplierController = {
         totalDebt,
         isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
         createdBy: data.created_by || data.createdBy || 'Admin',
+        lastTransaction: data.created_at ? new Date(data.created_at) : new Date(),
         createdAt: data.created_at ? new Date(data.created_at) : new Date(),
         tenantId,
       };

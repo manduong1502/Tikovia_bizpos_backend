@@ -110,7 +110,7 @@ export const cashbookController = {
           const newDebt = Number(cust.totalDebt) + debtChange;
           await tx.customer.update({
             where: { id: cust.id },
-            data: { totalDebt: newDebt }
+            data: { totalDebt: newDebt, lastTransaction: new Date() }
           });
         }
 
@@ -123,7 +123,7 @@ export const cashbookController = {
           const newDebt = Number(sup.totalDebt) + debtChange;
           await tx.supplier.update({
             where: { id: sup.id },
-            data: { totalDebt: newDebt }
+            data: { totalDebt: newDebt, lastTransaction: new Date() }
           });
         }
 
@@ -188,11 +188,11 @@ export const cashbookController = {
           if (cust) {
             const debtChange = typeEnum === 'INCOME' ? amountNum : -amountNum;
             const newDebt = Number(cust.totalDebt) + debtChange;
-            await tx.customer.update({
-              where: { id: cust.id },
-              data: { totalDebt: newDebt }
-            });
-          }
+             await tx.customer.update({
+               where: { id: cust.id },
+               data: { totalDebt: newDebt, lastTransaction: new Date() }
+             });
+           }
         }
 
         // Revert Supplier debt if linked
@@ -201,11 +201,11 @@ export const cashbookController = {
           if (sup) {
             const debtChange = typeEnum === 'EXPENSE' ? amountNum : -amountNum;
             const newDebt = Number(sup.totalDebt) + debtChange;
-            await tx.supplier.update({
-              where: { id: sup.id },
-              data: { totalDebt: newDebt }
-            });
-          }
+             await tx.supplier.update({
+               where: { id: sup.id },
+               data: { totalDebt: newDebt, lastTransaction: new Date() }
+             });
+           }
         }
 
         return tx.cashbookEntry.update({

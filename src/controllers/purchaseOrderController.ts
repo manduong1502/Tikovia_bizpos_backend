@@ -154,12 +154,13 @@ export const purchaseOrderController = {
           );
 
           const debt = total - body.paid;
-          if (debt !== 0) {
-            await tx.supplier.update({
-              where: { id: body.supplierId },
-              data: { totalDebt: { increment: debt } },
-            });
-          }
+          await tx.supplier.update({
+            where: { id: body.supplierId },
+            data: {
+              ...(debt !== 0 ? { totalDebt: { increment: debt } } : {}),
+              lastTransaction: new Date()
+            },
+          });
           
           // Generate Cashbook Entry (EXPENSE) if paid > 0
           if (body.paid > 0) {
@@ -303,12 +304,13 @@ export const purchaseOrderController = {
 
           // Cộng nợ nhà cung cấp mới
           const newDebt = total - finalPaid;
-          if (newDebt > 0) {
-            await tx.supplier.update({
-              where: { id: finalSupplierId },
-              data: { totalDebt: { increment: newDebt } },
-            });
-          }
+          await tx.supplier.update({
+            where: { id: finalSupplierId },
+            data: {
+              ...(newDebt > 0 ? { totalDebt: { increment: newDebt } } : {}),
+              lastTransaction: new Date()
+            },
+          });
           
           // Tạo phiếu chi cho phần thanh toán tăng thêm hoặc tạo mới nếu bị hủy giảm
           const oldPaidVal = Number(oldPO.paid);
@@ -404,12 +406,13 @@ export const purchaseOrderController = {
           );
 
           const debt = Number(po.total) - Number(po.paid);
-          if (debt !== 0) {
-            await tx.supplier.update({
-              where: { id: po.supplierId },
-              data: { totalDebt: { decrement: debt } },
-            });
-          }
+          await tx.supplier.update({
+            where: { id: po.supplierId },
+            data: {
+              ...(debt !== 0 ? { totalDebt: { decrement: debt } } : {}),
+              lastTransaction: new Date()
+            },
+          });
           
           // Also cancel associated cashbook entries
           await tx.cashbookEntry.updateMany({
