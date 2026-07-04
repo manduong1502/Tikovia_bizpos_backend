@@ -155,7 +155,7 @@ export const productController = {
       const tenantId = req.user!.tenantId;
       
       const existingName = await prisma.product.findFirst({
-        where: { tenantId, name: data.name }
+        where: { tenantId, name: data.name, isActive: true }
       });
       if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
       
@@ -208,7 +208,7 @@ export const productController = {
 
       if (data.name) {
         const existingName = await prisma.product.findFirst({
-          where: { tenantId, name: data.name, id: { not: Number(req.params.id) } }
+          where: { tenantId, name: data.name, id: { not: Number(req.params.id) }, isActive: true }
         });
         if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
       }
