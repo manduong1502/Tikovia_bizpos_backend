@@ -154,11 +154,7 @@ export const productController = {
       const data = productSchema.parse(req.body);
       const tenantId = req.user!.tenantId;
       
-      const existingName = await prisma.product.findFirst({
-        where: { tenantId, name: data.name, isActive: true }
-      });
-      if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
-      
+
       // Ensure SKU is unique if manually entered
       if (data.sku && data.sku.trim() !== '') {
         const existingSku = await prisma.product.findFirst({
@@ -206,12 +202,6 @@ export const productController = {
       });
       if (!existingProduct) return res.status(404).json({ message: 'Không tìm thấy hàng hóa' });
 
-      if (data.name) {
-        const existingName = await prisma.product.findFirst({
-          where: { tenantId, name: data.name, id: { not: Number(req.params.id) }, isActive: true }
-        });
-        if (existingName) return res.status(400).json({ message: 'Tên hàng hóa đã tồn tại' });
-      }
 
       if (data.sku === '') {
         delete data.sku; // Do not overwrite with empty string
