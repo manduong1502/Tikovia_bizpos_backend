@@ -184,7 +184,7 @@ export const purchaseReturnController = {
           await tx.supplier.update({
             where: { id: body.supplierId },
             data: {
-              ...(debtReduction !== 0 ? { totalDebt: { decrement: debtReduction } } : {}),
+              ...(debtReduction !== 0 ? { totalDebt: { increment: debtReduction } } : {}),
               lastTransaction: new Date()
             },
           });
@@ -292,7 +292,7 @@ export const purchaseReturnController = {
           await tx.supplier.update({
             where: { id: pr.supplierId },
             data: {
-              ...(debtReduction !== 0 ? { totalDebt: { increment: debtReduction } } : {}),
+              ...(debtReduction !== 0 ? { totalDebt: { decrement: debtReduction } } : {}),
               lastTransaction: new Date()
             },
           });

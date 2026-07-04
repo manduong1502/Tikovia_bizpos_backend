@@ -253,7 +253,7 @@ export const customerController = {
               customerType: item.customerType || null,
               branch: item.branch || null,
               totalSpent: item.totalSpent !== undefined ? Number(item.totalSpent) : 0,
-              totalDebt: item.totalDebt !== undefined ? Number(item.totalDebt) : 0,
+              totalDebt: item.totalDebt !== undefined ? -Number(item.totalDebt) : 0,
               isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
               createdBy: item.createdBy || null,
               lastTransaction: parseExcelDate(item.lastTransaction),

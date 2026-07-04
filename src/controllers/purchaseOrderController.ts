@@ -157,7 +157,7 @@ export const purchaseOrderController = {
           await tx.supplier.update({
             where: { id: body.supplierId },
             data: {
-              ...(debt !== 0 ? { totalDebt: { increment: debt } } : {}),
+              ...(debt !== 0 ? { totalDebt: { decrement: debt } } : {}),
               lastTransaction: new Date()
             },
           });
@@ -239,7 +239,7 @@ export const purchaseOrderController = {
           if (oldDebt > 0) {
             await tx.supplier.update({
               where: { id: oldPO.supplierId },
-              data: { totalDebt: { decrement: oldDebt } },
+              data: { totalDebt: { increment: oldDebt } },
             });
           }
           // Hủy phiếu chi cũ chỉ khi có điều chỉnh giảm số tiền thanh toán
@@ -307,7 +307,7 @@ export const purchaseOrderController = {
           await tx.supplier.update({
             where: { id: finalSupplierId },
             data: {
-              ...(newDebt > 0 ? { totalDebt: { increment: newDebt } } : {}),
+              ...(newDebt > 0 ? { totalDebt: { decrement: newDebt } } : {}),
               lastTransaction: new Date()
             },
           });
@@ -409,7 +409,7 @@ export const purchaseOrderController = {
           await tx.supplier.update({
             where: { id: po.supplierId },
             data: {
-              ...(debt !== 0 ? { totalDebt: { decrement: debt } } : {}),
+              ...(debt !== 0 ? { totalDebt: { increment: debt } } : {}),
               lastTransaction: new Date()
             },
           });
