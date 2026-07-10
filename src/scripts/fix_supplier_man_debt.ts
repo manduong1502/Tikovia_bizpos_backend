@@ -12,7 +12,7 @@ async function main() {
   }
 
   // Đặt lại nợ chuẩn: 525.000 (đơn 1) + 2.080.000 (đơn 2) - 2.080.000 (trả đơn 2) - 500.000 (trả tay) = 25.000
-  const correctDebt = 25000;
+  const correctDebt = 15000;
   await prisma.supplier.update({
     where: { id: s.id },
     data: { totalDebt: correctDebt }
