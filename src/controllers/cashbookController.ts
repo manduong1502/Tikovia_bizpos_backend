@@ -119,7 +119,7 @@ export const cashbookController = {
           if (!sup) throw new Error('Không tìm thấy nhà cung cấp của gian hàng này');
 
           // Update Supplier debt
-          const debtChange = typeEnum === 'EXPENSE' ? amountNum : -amountNum;
+          const debtChange = typeEnum === 'EXPENSE' ? -amountNum : amountNum;
           const newDebt = Number(sup.totalDebt) + debtChange;
           await tx.supplier.update({
             where: { id: sup.id },
@@ -199,7 +199,7 @@ export const cashbookController = {
         if (existingEntry.supplierId) {
           const sup = await tx.supplier.findFirst({ where: { id: existingEntry.supplierId, tenantId } });
           if (sup) {
-            const debtChange = typeEnum === 'EXPENSE' ? -amountNum : amountNum;
+            const debtChange = typeEnum === 'EXPENSE' ? amountNum : -amountNum;
             const newDebt = Number(sup.totalDebt) + debtChange;
              await tx.supplier.update({
                where: { id: sup.id },

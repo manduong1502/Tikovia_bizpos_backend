@@ -211,7 +211,7 @@ export const supplierController = {
           for (const item of chunk) {
             const code = item.code && item.code.trim() !== '' ? item.code.trim() : `NCC${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
             const totalSpent = Number(item.totalSpent || item.total_spent || 0);
-            const totalDebt = -Number(item.totalDebt || item.debt || 0);
+            const totalDebt = Number(item.totalDebt || item.debt || 0);
             
             const supplierData = {
               name: item.name,
