@@ -52,7 +52,7 @@ export const returnController = {
         prisma.return.findMany({
           where,
           include: {
-            customer: { select: { id: true, name: true, phone: true } },
+            customer: { select: { id: true, code: true, name: true, phone: true } },
             order: { select: { id: true, code: true, user: { select: { fullName: true } } } },
             _count: { select: { items: true } },
           },
@@ -141,7 +141,7 @@ export const returnController = {
           },
           include: {
             items: { include: { product: { select: { id: true, sku: true, name: true, unit: true } } } },
-            customer: { select: { id: true, name: true } }
+            customer: { select: { id: true, code: true, name: true, phone: true } }
           }
         });
 
