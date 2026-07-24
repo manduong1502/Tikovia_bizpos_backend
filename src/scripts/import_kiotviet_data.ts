@@ -25,8 +25,16 @@ function parseExcelDate(val: any): Date {
 function findFile(dir: string, pattern: RegExp): string | null {
   if (!fs.existsSync(dir)) return null;
   const files = fs.readdirSync(dir);
-  const match = files.find(f => pattern.test(f));
-  return match ? path.join(dir, match) : null;
+  const matches = files.filter(f => pattern.test(f));
+  if (matches.length === 0) return null;
+
+  matches.sort((a, b) => {
+    const statsA = fs.statSync(path.join(dir, a));
+    const statsB = fs.statSync(path.join(dir, b));
+    return statsB.size - statsA.size;
+  });
+
+  return path.join(dir, matches[0]);
 }
 
 async function main() {
