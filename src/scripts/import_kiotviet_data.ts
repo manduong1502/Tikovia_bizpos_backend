@@ -33,6 +33,9 @@ async function main() {
   console.log('🚀 BẮT ĐẦU NHẬP DỮ LIỆU EXCEL KIOTVIET VÀO HỆ THỐNG...\n');
 
   const searchDirs = [
+    path.join(__dirname, '../../data'),
+    path.join(__dirname, '../data'),
+    path.join(process.cwd(), 'data'),
     path.join(__dirname, '../../..'),
     path.join(__dirname, '../..'),
     process.cwd(),
