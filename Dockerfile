@@ -25,6 +25,7 @@ RUN npm ci --omit=dev
 RUN npx prisma@6.4.1 generate
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/data ./data
 
 EXPOSE 4001
 
