@@ -350,7 +350,7 @@ async function main() {
 
     const poGroups = new Map<string, any[]>();
     for (const r of rows) {
-      const code = String(r['Mã phiếu nhập'] || '').trim();
+      const code = String(r['Mã nhập hàng'] || r['Mã phiếu nhập'] || r['Mã phiếu'] || '').trim();
       if (!code) continue;
       if (!poGroups.has(code)) poGroups.set(code, []);
       poGroups.get(code)!.push(r);
@@ -366,8 +366,8 @@ async function main() {
       const supplierId = supplier.id;
 
       const createdAt = parseExcelDate(firstRow['Thời gian'] || firstRow['Thời gian tạo']);
-      const total = parseFloat(firstRow['Cần trả nhà cung cấp'] || firstRow['Tổng tiền hàng'] || firstRow['Tổng tiền']) || 0;
-      const paid = parseFloat(firstRow['Tiền đã trả nhà cung cấp'] || firstRow['Đã trả nhà cung cấp'] || firstRow['Đã trả NCC']) || 0;
+      const total = parseFloat(firstRow['Cần trả NCC'] || firstRow['Cần trả nhà cung cấp'] || firstRow['Tổng tiền hàng'] || firstRow['Tổng tiền']) || 0;
+      const paid = parseFloat(firstRow['Tiền đã trả NCC'] || firstRow['Tiền đã trả nhà cung cấp'] || firstRow['Đã trả nhà cung cấp'] || firstRow['Đã trả NCC']) || 0;
       const note = String(firstRow['Ghi chú'] || '').trim();
       const status = String(firstRow['Trạng thái'] || '').includes('Hủy') ? 'CANCELLED' : 'COMPLETED';
 
