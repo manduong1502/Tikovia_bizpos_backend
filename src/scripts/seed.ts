@@ -97,6 +97,14 @@ async function main() {
   console.log('   Nhân viên: nhanvien1 / staff123');
   console.log('📝 Tài khoản Super Admin:');
   console.log('   Super Admin: tikovia / Skybone7194@');
+
+  console.log('\n🔄 Chạy import dữ liệu KiotViet từ Excel...');
+  try {
+    const { importKiotvietData } = await import('./import_kiotviet_data');
+    await importKiotvietData();
+  } catch (err) {
+    console.error('⚠️ Lỗi khi chạy importKiotvietData trong seed:', err);
+  }
 }
 
 main()

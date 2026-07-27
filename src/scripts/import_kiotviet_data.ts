@@ -3,6 +3,42 @@ import path from 'path';
 import * as XLSX from 'xlsx';
 import { prisma } from '../config/database';
 
+function parseExcelNumber(val: any, defaultVal = 0): number {
+  if (val === null || val === undefined || val === '') return defaultVal;
+  if (typeof val === 'number') return isNaN(val) ? defaultVal : val;
+  if (typeof val === 'boolean') return val ? 1 : 0;
+  
+  let str = String(val).trim();
+  if (!str) return defaultVal;
+
+  str = str.replace(/\s+/g, '');
+
+  if (/^-?\d{1,3}(\.\d{3})*,\d+$/.test(str)) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else if (/^-?\d+,\d+$/.test(str)) {
+    str = str.replace(',', '.');
+  } else if (/^-?\d{1,3}(,\d{3})*\.\d+$/.test(str)) {
+    str = str.replace(/,/g, '');
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(str)) {
+    str = str.replace(/\./g, '');
+  } else if (/^-?\d{1,3}(,\d{3})+$/.test(str)) {
+    str = str.replace(/,/g, '');
+  } else {
+    const commaCount = (str.match(/,/g) || []).length;
+    const dotCount = (str.match(/\./g) || []).length;
+    if (commaCount === 1 && dotCount === 0) {
+      str = str.replace(',', '.');
+    } else if (dotCount > 1 && commaCount === 0) {
+      str = str.replace(/\./g, '');
+    } else if (commaCount > 1 && dotCount === 0) {
+      str = str.replace(/,/g, '');
+    }
+  }
+
+  const result = parseFloat(str);
+  return isNaN(result) ? defaultVal : result;
+}
+
 function parseExcelDate(val: any): Date {
   if (!val) return new Date();
   if (val instanceof Date) return val;
@@ -106,9 +142,9 @@ async function main() {
       const catName = (r['Nhóm hàng(3 Cấp)'] || r['Nhóm hàng'] || 'Chưa phân loại').trim();
       const categoryId = categoryMap.get(catName) || null;
 
-      const sellPrice = Math.max(0, parseFloat(r['Giá bán']) || 0);
-      const costPrice = Math.max(0, parseFloat(r['Giá vốn']) || 0);
-      const stock = parseFloat(r['Tồn kho']) || 0;
+      const sellPrice = Math.max(0, parseExcelNumber(r['Giá bán']));
+      const costPrice = Math.max(0, parseExcelNumber(r['Giá vốn']));
+      const stock = parseExcelNumber(r['Tồn kho']);
       const unit = String(r['ĐVT'] || r['Đơn vị tính'] || '').trim();
       const isActive = String(r['Đang kinh doanh']) === '1' || r['Đang kinh doanh'] === 1 || r['Đang kinh doanh'] === 'Có';
       const createdAt = parseExcelDate(r['Thời gian tạo']);
@@ -154,7 +190,7 @@ async function main() {
       const phone = rawPhone ? rawPhone : null;
       const address = String(r['Địa chỉ'] || '').trim();
       const note = String(r['Ghi chú'] || '').trim();
-      const totalDebt = parseFloat(r['Nợ cần thu hiện tại'] || r['Nợ cần trả hiện tại']) || 0;
+      const totalDebt = parseExcelNumber(r['Nợ cần thu hiện tại'] || r['Nợ cần trả hiện tại']);
       const createdAt = parseExcelDate(r['Ngày tạo'] || r['Thời gian tạo']);
 
       try {
@@ -209,7 +245,7 @@ async function main() {
       const email = String(r['Email'] || '').trim() || null;
       const address = String(r['Địa chỉ'] || '').trim();
       const note = String(r['Ghi chú'] || '').trim();
-      const totalDebt = parseFloat(r['Nợ cần trả hiện tại']) || 0;
+      const totalDebt = parseExcelNumber(r['Nợ cần trả hiện tại']);
       const createdAt = parseExcelDate(r['Ngày tạo'] || r['Thời gian tạo']);
 
       try {
@@ -290,9 +326,9 @@ async function main() {
       const customerId = customer ? customer.id : undefined;
 
       const createdAt = parseExcelDate(firstRow['Thời gian'] || firstRow['Thời gian tạo']);
-      const total = parseFloat(firstRow['Khách cần trả'] || firstRow['Tổng tiền hàng']) || 0;
-      const paid = parseFloat(firstRow['Khách đã trả']) || 0;
-      const discount = parseFloat(firstRow['Giảm giá hóa đơn']) || 0;
+      const total = parseExcelNumber(firstRow['Khách cần trả'] || firstRow['Tổng tiền hàng']);
+      const paid = parseExcelNumber(firstRow['Khách đã trả']);
+      const discount = parseExcelNumber(firstRow['Giảm giá hóa đơn']);
       const note = String(firstRow['Ghi chú'] || '').trim();
       const status = String(firstRow['Trạng thái'] || '').includes('Hủy') ? 'CANCELLED' : 'COMPLETED';
 
@@ -310,10 +346,10 @@ async function main() {
         const orderItemsData = items.map(it => {
           const sku = String(it['Mã hàng'] || '').trim().toLowerCase();
           const prod = prodMap.get(sku) || fallbackProduct;
-          const qty = parseFloat(it['Số lượng']) || 1;
-          const price = parseFloat(it['Đơn giá'] || it['Giá bán']) || 0;
-          const itemDiscount = parseFloat(it['Giảm giá']) || 0;
-          const itemTotal = parseFloat(it['Thành tiền']) || (qty * price - itemDiscount);
+          const qty = parseExcelNumber(it['Số lượng'], 1);
+          const price = parseExcelNumber(it['Đơn giá'] || it['Giá bán']);
+          const itemDiscount = parseExcelNumber(it['Giảm giá']);
+          const itemTotal = parseExcelNumber(it['Thành tiền']) || (qty * price - itemDiscount);
 
           return {
             productId: prod.id,
@@ -374,8 +410,8 @@ async function main() {
       const supplierId = supplier.id;
 
       const createdAt = parseExcelDate(firstRow['Thời gian'] || firstRow['Thời gian tạo']);
-      const total = parseFloat(firstRow['Cần trả NCC'] || firstRow['Cần trả nhà cung cấp'] || firstRow['Tổng tiền hàng'] || firstRow['Tổng tiền']) || 0;
-      const paid = parseFloat(firstRow['Tiền đã trả NCC'] || firstRow['Tiền đã trả nhà cung cấp'] || firstRow['Đã trả nhà cung cấp'] || firstRow['Đã trả NCC']) || 0;
+      const total = parseExcelNumber(firstRow['Cần trả NCC'] || firstRow['Cần trả nhà cung cấp'] || firstRow['Tổng tiền hàng'] || firstRow['Tổng tiền']);
+      const paid = parseExcelNumber(firstRow['Tiền đã trả NCC'] || firstRow['Tiền đã trả nhà cung cấp'] || firstRow['Đã trả nhà cung cấp'] || firstRow['Đã trả NCC']);
       const note = String(firstRow['Ghi chú'] || '').trim();
       const status = String(firstRow['Trạng thái'] || '').includes('Hủy') ? 'CANCELLED' : 'COMPLETED';
 
@@ -393,10 +429,10 @@ async function main() {
         const poItemsData = items.map(it => {
           const sku = String(it['Mã hàng'] || '').trim().toLowerCase();
           const prod = prodMap.get(sku) || fallbackProduct;
-          const qty = parseFloat(it['Số lượng']) || 1;
-          const price = parseFloat(it['Đơn giá'] || it['Giá nhập']) || 0;
-          const itemDiscount = parseFloat(it['Giảm giá']) || 0;
-          const itemTotal = parseFloat(it['Thành tiền']) || (qty * price - itemDiscount);
+          const qty = parseExcelNumber(it['Số lượng'], 1);
+          const price = parseExcelNumber(it['Đơn giá'] || it['Giá nhập']);
+          const itemDiscount = parseExcelNumber(it['Giảm giá']);
+          const itemTotal = parseExcelNumber(it['Thành tiền']) || (qty * price - itemDiscount);
 
           return {
             productId: prod.id,
@@ -454,9 +490,9 @@ async function main() {
       const customerId = customer ? customer.id : undefined;
 
       const createdAt = parseExcelDate(firstRow['Thời gian'] || firstRow['Thời gian tạo']);
-      const total = parseFloat(firstRow['Cần trả khách'] || firstRow['Tổng tiền hàng trả'] || firstRow['Tổng sau giảm giá']) || 0;
-      const paid = parseFloat(firstRow['Đã trả khách'] || firstRow['Tiền mặt']) || 0;
-      const discount = parseFloat(firstRow['Giảm giá phiếu trả'] || firstRow['Giảm giá']) || 0;
+      const total = parseExcelNumber(firstRow['Cần trả khách'] || firstRow['Tổng tiền hàng trả'] || firstRow['Tổng sau giảm giá']);
+      const paid = parseExcelNumber(firstRow['Đã trả khách'] || firstRow['Tiền mặt']);
+      const discount = parseExcelNumber(firstRow['Giảm giá phiếu trả'] || firstRow['Giảm giá']);
       const note = String(firstRow['Ghi chú'] || '').trim();
 
       const matchNum = code.match(/(\d+)$/);
@@ -473,9 +509,9 @@ async function main() {
         const returnItemsData = items.map(it => {
           const sku = String(it['Mã hàng'] || '').trim().toLowerCase();
           const prod = prodMap.get(sku) || fallbackProduct;
-          const qty = parseFloat(it['Số lượng']) || 1;
-          const price = parseFloat(it['Giá nhập lại'] || it['Giá bán'] || it['Đơn giá']) || 0;
-          const itemDiscount = parseFloat(it['Giảm giá']) || 0;
+          const qty = parseExcelNumber(it['Số lượng'], 1);
+          const price = parseExcelNumber(it['Giá nhập lại'] || it['Giá bán'] || it['Đơn giá']);
+          const itemDiscount = parseExcelNumber(it['Giảm giá']);
           const itemTotal = (qty * price) - itemDiscount;
 
           return {
@@ -526,7 +562,7 @@ async function main() {
       const categoryType = String(r['Loại thu chi'] || '').trim();
       const type = (categoryType.includes('thu') || categoryType.includes('Thu')) ? 'INCOME' : 'EXPENSE';
       const partner = String(r['Người nộp/nhận'] || '').trim();
-      const amount = Math.abs(parseFloat(r['Giá trị']) || 0);
+      const amount = Math.abs(parseExcelNumber(r['Giá trị']));
 
       const matchNum = code.match(/(\d+)$/);
       if (matchNum) {
@@ -581,11 +617,17 @@ async function main() {
   console.log('\n🎉 HOÀN THÀNH NHẬP TOÀN BỘ DỮ LIỆU EXCEL KIOTVIET VÀO HỆ THỐNG GIAO DỊCH!');
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ Thất bại khi import dữ liệu:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+export async function importKiotvietData() {
+  await main();
+}
+
+if (require.main === module) {
+  importKiotvietData()
+    .catch((e) => {
+      console.error('❌ Thất bại khi import dữ liệu:', e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
