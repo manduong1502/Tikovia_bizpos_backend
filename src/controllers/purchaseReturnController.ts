@@ -121,13 +121,14 @@ export const purchaseReturnController = {
 
         // Verify all products belong to this tenant
         const productIds = body.items.map(it => it.productId);
+        const uniqueProductIds = Array.from(new Set(productIds));
         const dbProducts = await tx.product.findMany({
           where: {
-            id: { in: productIds },
+            id: { in: uniqueProductIds },
             tenantId
           }
         });
-        if (dbProducts.length !== productIds.length) {
+        if (dbProducts.length !== uniqueProductIds.length) {
           throw new Error('Một hoặc nhiều sản phẩm không hợp lệ hoặc không thuộc cửa hàng này');
         }
 
