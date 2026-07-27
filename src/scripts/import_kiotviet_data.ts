@@ -614,6 +614,27 @@ async function main() {
     console.log(`   ✅ Đã import ${cashCount} phiếu thu/chi sổ quỹ.\n`);
   }
 
+  // ─── 7b. KHỞI TẠO QUỸ ĐẦU KỲ ───
+  const existingOpening = await prisma.cashbookEntry.findFirst({
+    where: { tenantId, code: 'TT000000' }
+  });
+  if (!existingOpening) {
+    await prisma.cashbookEntry.create({
+      data: {
+        tenantId,
+        code: 'TT000000',
+        type: 'INCOME',
+        category: 'Quỹ đầu kỳ',
+        amount: 32807129366,
+        partnerName: 'Hệ thống',
+        userId,
+        createdAt: new Date('2020-01-01T00:00:00.000Z'),
+        note: 'Quỹ đầu kỳ khởi tạo từ KiotViet'
+      }
+    });
+    console.log('   ✅ Đã khởi tạo Quỹ đầu kỳ: 32,807,129,366 VNĐ\n');
+  }
+
   // ─── 8. CẬP NHẬT BỘ ĐẾM MÃ CHỨNG TỪ (SEQUENCE TRACKER) ───
   console.log('🔢 8. Cập nhật bộ đếm mã chứng từ tự động...');
   const sequenceUpdates = [
