@@ -19,6 +19,7 @@ const createOrderSchema = z.object({
   paid: z.coerce.number().min(0).default(0),
   paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'MIXED']).default('CASH'),
   note: z.string().optional().nullable(),
+  createdAt: z.string().optional().nullable(),
   status: z.enum(['COMPLETED', 'CANCELLED', 'PENDING', 'SHIPPING']).default('COMPLETED'),
   deliveryAddress: z.string().optional().nullable(),
   receiverName: z.string().optional().nullable(),
@@ -37,6 +38,7 @@ const updateOrderSchema = z.object({
   paid: z.coerce.number().min(0).optional(),
   paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'MIXED']).optional(),
   note: z.string().optional().nullable(),
+  createdAt: z.string().optional().nullable(),
   status: z.enum(['COMPLETED', 'CANCELLED', 'PENDING', 'SHIPPING']).optional(),
   deliveryAddress: z.string().optional().nullable(),
   receiverName: z.string().optional().nullable(),
@@ -249,6 +251,7 @@ export const orderController = {
         // Create order
         const code = await generateOrderCode(tenantId, tx);
         const debtChange = total - (body.paid ?? total);
+        const orderDate = parseExcelDate(body.createdAt) || new Date();
         const newOrder = await tx.order.create({
           data: {
             code,
@@ -262,6 +265,7 @@ export const orderController = {
             newDebt: customerDebtBefore + debtChange,
             paymentMethod: body.paymentMethod,
             note: body.note,
+            createdAt: orderDate,
             status: body.status || 'COMPLETED',
             deliveryAddress: body.deliveryAddress || null,
             receiverName: body.receiverName || null,
@@ -325,6 +329,7 @@ export const orderController = {
               orderId: newOrder.id,
               note: `Thu tiền đơn hàng ${code}`,
               tenantId,
+              createdAt: orderDate,
             }
           });
         }
@@ -482,6 +487,8 @@ export const orderController = {
             deliveryStatusToUpdate = null;
           }
 
+          const customOrderDate = parseExcelDate(body.createdAt);
+
           // 4. Update order
           const newOrder = await tx.order.update({
             where: { id },
@@ -497,6 +504,7 @@ export const orderController = {
               paymentMethod: body.paymentMethod ?? 'CASH',
               note: body.note,
               items: { create: itemsData },
+              ...(customOrderDate && { createdAt: customOrderDate }),
               ...(statusToUpdate !== undefined && { status: statusToUpdate }),
               ...(body.deliveryAddress !== undefined && { deliveryAddress: body.deliveryAddress }),
               ...(body.receiverName !== undefined && { receiverName: body.receiverName }),
@@ -543,7 +551,12 @@ export const orderController = {
             if (existingEntry) {
               await tx.cashbookEntry.update({
                 where: { id: existingEntry.id },
-                data: { amount: paid, customerId: body.customerId || null, status: 'completed' }
+                data: { 
+                  amount: paid, 
+                  customerId: body.customerId || null, 
+                  status: 'completed',
+                  ...(customOrderDate && { createdAt: customOrderDate })
+                }
               });
             } else {
               const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
@@ -564,6 +577,7 @@ export const orderController = {
                   orderId: id,
                   note: `Thu tiền đơn hàng ${newOrder.code} (Cập nhật)`,
                   tenantId,
+                  createdAt: customOrderDate || newOrder.createdAt,
                 }
               });
             }

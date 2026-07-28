@@ -16,9 +16,25 @@ const createReturnSchema = z.object({
   customerId: z.number().int().optional().nullable(),
   items: z.array(returnItemSchema).min(1, 'Đơn trả hàng phải có ít nhất 1 sản phẩm'),
   reason: z.string().optional().nullable(),
+  createdAt: z.string().optional().nullable(),
   discount: z.number().min(0).default(0), // Phí trả hàng (khách chịu)
   paid: z.number().min(0).default(0), // Tiền thực tế trả khách
 });
+
+function parseExcelDate(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date && !isNaN(val.getTime())) return val;
+  const num = Number(val);
+  if (!isNaN(num) && num > 10000 && num < 99999) {
+    const ms = (num - 25569) * 86400 * 1000;
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const str = String(val).trim();
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
 
 // Auto-generate return code using SequenceTracker scoped by tenantId
 async function generateReturnCode(tenantId: number, txClient?: any): Promise<string> {
@@ -127,6 +143,7 @@ export const returnController = {
           };
         });
 
+        const returnDate = parseExcelDate(body.createdAt) || new Date();
         const newReturn = await tx.return.create({
           data: {
             code,
@@ -136,6 +153,7 @@ export const returnController = {
             discount: body.discount,
             paid: body.paid,
             reason: body.reason,
+            createdAt: returnDate,
             status: 'COMPLETED',
             items: { create: itemsData },
             tenantId,
@@ -199,6 +217,7 @@ export const returnController = {
               returnId: newReturn.id,
               note: `Chi trả khách trả hàng (Phiếu trả ${code})`,
               tenantId,
+              createdAt: returnDate,
             }
           });
         }

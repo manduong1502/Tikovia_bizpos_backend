@@ -16,8 +16,24 @@ const createPurchaseOrderSchema = z.object({
   items: z.array(purchaseOrderItemSchema).min(1, 'Phiếu nhập phải có ít nhất 1 sản phẩm'),
   paid: z.number().min(0).default(0),
   note: z.string().optional().nullable(),
+  createdAt: z.string().optional().nullable(),
   status: z.enum(['PENDING', 'COMPLETED']).default('COMPLETED'),
 });
+
+function parseExcelDate(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date && !isNaN(val.getTime())) return val;
+  const num = Number(val);
+  if (!isNaN(num) && num > 10000 && num < 99999) {
+    const ms = (num - 25569) * 86400 * 1000;
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const str = String(val).trim();
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
 
 // Auto-generate code using SequenceTracker scoped by tenantId
 async function generatePOCode(tenantId: number, txClient?: any): Promise<string> {
@@ -125,6 +141,8 @@ export const purchaseOrderController = {
           };
         });
 
+        const poDate = parseExcelDate(body.createdAt) || new Date();
+
         // Tạo đơn nhập
         const newPO = await tx.purchaseOrder.create({
           data: {
@@ -134,6 +152,7 @@ export const purchaseOrderController = {
             total,
             paid: body.paid,
             note: body.note,
+            createdAt: poDate,
             items: { create: itemsData },
             tenantId,
           },
@@ -184,6 +203,7 @@ export const purchaseOrderController = {
                 purchaseOrderId: newPO.id,
                 note: `Trả tiền nhập hàng ${code}`,
                 tenantId,
+                createdAt: poDate,
               }
             });
           }
