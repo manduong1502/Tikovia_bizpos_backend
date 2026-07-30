@@ -150,10 +150,16 @@ export const orderController = {
         if (from) where.createdAt.gte = new Date(from);
         if (to) where.createdAt.lte = new Date(to + 'T23:59:59.999Z');
       }
-      if (search) {
+      if (search && search.trim()) {
+        const q = search.trim();
         where.OR = [
-          { code: { contains: search, mode: 'insensitive' } },
-          { customer: { name: { contains: search, mode: 'insensitive' } } },
+          { code: { contains: q, mode: 'insensitive' } },
+          { customer: { name: { contains: q, mode: 'insensitive' } } },
+          { customer: { code: { contains: q, mode: 'insensitive' } } },
+          { customer: { phone: { contains: q, mode: 'insensitive' } } },
+          { note: { contains: q, mode: 'insensitive' } },
+          { items: { some: { product: { name: { contains: q, mode: 'insensitive' } } } } },
+          { items: { some: { product: { sku: { contains: q, mode: 'insensitive' } } } } },
         ];
       }
 
