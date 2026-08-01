@@ -64,28 +64,41 @@ async function generateOrderCode(tenantId: number, txClient?: any): Promise<stri
 function parseExcelDate(val: any): Date | null {
   if (!val) return null;
   if (val instanceof Date && !isNaN(val.getTime())) return val;
-  const num = Number(val);
-  if (!isNaN(num) && num > 10000 && num < 99999) {
-    const ms = (num - 25569) * 86400 * 1000;
+  
+  if (typeof val === 'number') {
+    const ms = Math.round((val - 25569) * 86400 * 1000);
     const d = new Date(ms);
-    if (!isNaN(d.getTime())) return d;
+    return isNaN(d.getTime()) ? null : d;
   }
-  if (!isNaN(num) && num > 1000000000000) {
-    const d = new Date(num);
-    if (!isNaN(d.getTime())) return d;
-  }
+  
   const str = String(val).trim();
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) return d;
-  const parts = str.split(/[/\-_]/);
-  if (parts.length >= 3) {
-    const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const year = parseInt(parts[2], 10);
-    const d2 = new Date(year, month, day);
-    if (!isNaN(d2.getTime())) return d2;
+  if (!str) return null;
+
+  const parts = str.split(' ');
+  const datePart = parts[0];
+  const timePart = parts[1] || '00:00:00';
+
+  if (datePart.includes('/')) {
+    const dParts = datePart.split('/');
+    if (dParts.length === 3) {
+      const day = parseInt(dParts[0], 10);
+      const month = parseInt(dParts[1], 10) - 1;
+      const year = parseInt(dParts[2], 10);
+      const tParts = timePart.split(':');
+      const hour = parseInt(tParts[0] || '0', 10);
+      const minute = parseInt(tParts[1] || '0', 10);
+      const second = parseInt(tParts[2] || '0', 10);
+      
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        const fullYear = year < 100 ? 2000 + year : year;
+        const d = new Date(fullYear, month, day, hour, minute, second);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
   }
-  return null;
+
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? null : fallback;
 }
 
 async function syncOrderToChatTikovia(order: any) {

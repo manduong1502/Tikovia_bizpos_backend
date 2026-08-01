@@ -41,21 +41,70 @@ function parseExcelNumber(val: any, defaultVal = 0): number {
 
 function parseExcelDate(val: any): Date {
   if (!val) return new Date();
-  if (val instanceof Date) return val;
+  if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
+  
   if (typeof val === 'number') {
     const ms = Math.round((val - 25569) * 86400 * 1000);
-    return new Date(ms);
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? new Date() : d;
   }
-  if (typeof val === 'string') {
-    const d = new Date(val);
-    if (!isNaN(d.getTime())) return d;
-    const num = parseFloat(val);
-    if (!isNaN(num) && num > 30000) {
-      const ms = Math.round((num - 25569) * 86400 * 1000);
-      return new Date(ms);
+  
+  const str = String(val).trim();
+  if (!str) return new Date();
+
+  // Try parsing DD/MM/YYYY HH:mm:ss or DD/MM/YYYY HH:mm or DD/MM/YYYY
+  const parts = str.split(' ');
+  const datePart = parts[0];
+  const timePart = parts[1] || '00:00:00';
+
+  if (datePart.includes('/')) {
+    const dParts = datePart.split('/');
+    if (dParts.length === 3) {
+      const day = parseInt(dParts[0], 10);
+      const month = parseInt(dParts[1], 10) - 1;
+      const year = parseInt(dParts[2], 10);
+      const tParts = timePart.split(':');
+      const hour = parseInt(tParts[0] || '0', 10);
+      const minute = parseInt(tParts[1] || '0', 10);
+      const second = parseInt(tParts[2] || '0', 10);
+      
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        const fullYear = year < 100 ? 2000 + year : year;
+        const d = new Date(fullYear, month, day, hour, minute, second);
+        if (!isNaN(d.getTime())) return d;
+      }
     }
   }
-  return new Date();
+
+  if (datePart.includes('-')) {
+    const dParts = datePart.split('-');
+    if (dParts.length === 3) {
+      if (dParts[0].length === 4) {
+        const year = parseInt(dParts[0], 10);
+        const month = parseInt(dParts[1], 10) - 1;
+        const day = parseInt(dParts[2], 10);
+        const tParts = timePart.split(':');
+        const hour = parseInt(tParts[0] || '0', 10);
+        const minute = parseInt(tParts[1] || '0', 10);
+        const second = parseInt(tParts[2] || '0', 10);
+        const d = new Date(year, month, day, hour, minute, second);
+        if (!isNaN(d.getTime())) return d;
+      } else {
+        const day = parseInt(dParts[0], 10);
+        const month = parseInt(dParts[1], 10) - 1;
+        const year = parseInt(dParts[2], 10);
+        const tParts = timePart.split(':');
+        const hour = parseInt(tParts[0] || '0', 10);
+        const minute = parseInt(tParts[1] || '0', 10);
+        const second = parseInt(tParts[2] || '0', 10);
+        const d = new Date(year, month, day, hour, minute, second);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+  }
+
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? new Date() : fallback;
 }
 
 function findAllFiles(dir: string, pattern: RegExp): string[] {
