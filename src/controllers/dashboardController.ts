@@ -29,8 +29,9 @@ export const dashboardController = {
         d.setHours(0, 0, 0, 0);
         const end = new Date(d);
         end.setHours(23, 59, 59, 999);
+
         if (type === 'Hôm nay') {
-          return { start: d, end: end };
+          return { start: d, end };
         }
         if (type === 'Hôm qua') {
           const start = new Date(d);
@@ -44,9 +45,58 @@ export const dashboardController = {
           start.setDate(start.getDate() - 6);
           return { start, end };
         }
+        if (type === '30 ngày qua') {
+          const start = new Date(d);
+          start.setDate(start.getDate() - 29);
+          return { start, end };
+        }
+        if (type === 'Tuần này') {
+          const day = d.getDay();
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+          const start = new Date(d.setDate(diff));
+          start.setHours(0, 0, 0, 0);
+          return { start, end };
+        }
+        if (type === 'Tuần trước') {
+          const day = d.getDay();
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1) - 7;
+          const start = new Date(d.setDate(diff));
+          start.setHours(0, 0, 0, 0);
+          const e = new Date(start);
+          e.setDate(e.getDate() + 6);
+          e.setHours(23, 59, 59, 999);
+          return { start, end: e };
+        }
         if (type === 'Tháng trước') {
           const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
           const e = new Date(d.getFullYear(), d.getMonth(), 0, 23, 59, 59, 999);
+          return { start, end: e };
+        }
+        if (type === 'Quý này') {
+          const quarter = Math.floor(d.getMonth() / 3);
+          const start = new Date(d.getFullYear(), quarter * 3, 1);
+          const e = new Date(d.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59, 999);
+          return { start, end: e };
+        }
+        if (type === 'Quý trước') {
+          const quarter = Math.floor(d.getMonth() / 3) - 1;
+          const start = new Date(d.getFullYear(), quarter * 3, 1);
+          const e = new Date(d.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59, 999);
+          return { start, end: e };
+        }
+        if (type === 'Năm nay') {
+          const start = new Date(d.getFullYear(), 0, 1);
+          const e = new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
+          return { start, end: e };
+        }
+        if (type === 'Năm trước') {
+          const start = new Date(d.getFullYear() - 1, 0, 1);
+          const e = new Date(d.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
+          return { start, end: e };
+        }
+        if (type === 'Toàn thời gian') {
+          const start = new Date(2000, 0, 1);
+          const e = new Date(2099, 11, 31, 23, 59, 59, 999);
           return { start, end: e };
         }
         // Default: Tháng này
