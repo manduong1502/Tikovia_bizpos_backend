@@ -144,7 +144,7 @@ async function main() {
         const barcode = String(r['Mã mã vạch'] || r['Barcode'] || '').trim() || null;
         const categoryName = String(r['Nhóm hàng'] || r['Danh mục'] || '').trim();
         const costPrice = parseExcelNumber(r['Giá vốn'] || r['Giá nhập']);
-        const basePrice = parseExcelNumber(r['Giá bán'] || r['Giá']);
+        const sellPrice = parseExcelNumber(r['Giá bán'] || r['Giá']);
         const stock = parseExcelNumber(r['Tồn kho'] || r['Số lượng tồn']);
         const unit = String(r['Đơn vị tính'] || r['ĐVT'] || '').trim() || 'Cái';
 
@@ -165,10 +165,10 @@ async function main() {
           await prisma.product.upsert({
             where: { tenantId_sku: { tenantId, sku } },
             update: {
-              name, barcode, categoryId, costPrice, basePrice, stock, unit, updatedAt: new Date()
+              name, barcode, categoryId, costPrice, sellPrice, stock, unit, updatedAt: new Date()
             },
             create: {
-              tenantId, sku, name, barcode, categoryId, costPrice, basePrice, stock, unit
+              tenantId, sku, name, barcode, categoryId, costPrice, sellPrice, stock, unit
             }
           });
           prodCount++;
@@ -190,7 +190,7 @@ async function main() {
         name: 'Sản phẩm vãng lai',
         categoryId: defaultCategory.id,
         costPrice: 0,
-        basePrice: 0,
+        sellPrice: 0,
         stock: 9999
       }
     });
@@ -328,11 +328,14 @@ async function main() {
   const suppMapByName = new Map(allSuppliers.map(s => [s.name.toLowerCase(), s]));
 
   let defaultUser = await prisma.user.findFirst({ where: { tenantId } });
+  const userId = defaultUser ? defaultUser.id : 1;
 
   let maxOrderNum = 0;
   let maxPONum = 0;
   let maxReturnNum = 0;
   let maxPOReturnNum = 0;
+  let maxPRNum = 0;
+  let maxCashbookNum = 0;
 
   // ─── 4. HÓA ĐƠN BÁN HÀNG (Hỗ trợ đọc nhiều file theo từng tháng) ───
   const orderFiles = findAllFiles(searchDir, /^DanhSachChiTietHoaDon.*\.xlsx$/i);
@@ -405,7 +408,7 @@ async function main() {
             tenantId,
             code,
             customerId,
-            userId: defaultUser?.id,
+            userId,
             total,
             discount,
             paid,
