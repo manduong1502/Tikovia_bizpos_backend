@@ -58,19 +58,18 @@ function parseExcelDate(val: any): Date {
   return new Date();
 }
 
-function findFile(dir: string, pattern: RegExp): string | null {
-  if (!fs.existsSync(dir)) return null;
+function findAllFiles(dir: string, pattern: RegExp): string[] {
+  if (!fs.existsSync(dir)) return [];
   const files = fs.readdirSync(dir);
   const matches = files.filter(f => pattern.test(f));
-  if (matches.length === 0) return null;
+  return matches.map(f => path.join(dir, f));
+}
 
-  matches.sort((a, b) => {
-    const statsA = fs.statSync(path.join(dir, a));
-    const statsB = fs.statSync(path.join(dir, b));
-    return statsB.size - statsA.size;
-  });
-
-  return path.join(dir, matches[0]);
+function findFile(dir: string, pattern: RegExp): string | null {
+  const all = findAllFiles(dir, pattern);
+  if (all.length === 0) return null;
+  all.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
+  return all[0];
 }
 
 async function main() {
@@ -119,127 +118,135 @@ async function main() {
   }
   const tenantId = tenant.id;
 
-  let adminUser = await prisma.user.findFirst({ where: { tenantId, role: 'ADMIN' } });
-  if (!adminUser) {
-    adminUser = await prisma.user.findFirst({ where: { tenantId } });
+  let defaultCategory = await prisma.category.findFirst({ where: { tenantId } });
+  if (!defaultCategory) {
+    defaultCategory = await prisma.category.create({
+      data: { tenantId, name: 'Hàng hóa chung' }
+    });
   }
-  const userId = adminUser ? adminUser.id : 1;
 
-  let maxOrderNum = 0;
-  let maxReturnNum = 0;
-  let maxPONum = 0;
-  let maxPRNum = 0;
-  let maxCashbookNum = 0;
+  // ─── 1. SẢN PHẨM ───
+  const prodFiles = findAllFiles(searchDir, /^DanhSachSanPham.*\.xlsx$/i);
+  if (prodFiles.length > 0) {
+    console.log(`📦 1. Import Sản phẩm từ ${prodFiles.length} file...`);
+    let prodCount = 0;
+    for (const prodFile of prodFiles) {
+      console.log(`   📄 Đang đọc: ${path.basename(prodFile)}`);
+      const wb = XLSX.readFile(prodFile);
+      const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
+      const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
 
-  // ─── 1. HÀNG HÓA & NHÓM HÀNG ───
-  const prodFile = findFile(searchDir, /^DanhSachSanPham.*\.xlsx$/i);
-  if (prodFile) {
-    console.log(`📦 1. Import Hàng hóa từ: ${path.basename(prodFile)}`);
-    const wb = XLSX.readFile(prodFile);
-    const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+      for (const r of rows) {
+        const sku = String(r['Mã hàng'] || r['Mã sản phẩm'] || r['Mã SKU'] || '').trim();
+        const name = String(r['Tên hàng'] || r['Tên sản phẩm'] || '').trim();
+        if (!sku || !name) continue;
 
-    console.log(`   Đã đọc ${rows.length} dòng hàng hóa.`);
+        const barcode = String(r['Mã mã vạch'] || r['Barcode'] || '').trim() || null;
+        const categoryName = String(r['Nhóm hàng'] || r['Danh mục'] || '').trim();
+        const costPrice = parseExcelNumber(r['Giá vốn'] || r['Giá nhập']);
+        const basePrice = parseExcelNumber(r['Giá bán'] || r['Giá']);
+        const stock = parseExcelNumber(r['Tồn kho'] || r['Số lượng tồn']);
+        const unit = String(r['Đơn vị tính'] || r['ĐVT'] || '').trim() || 'Cái';
 
-    const categoryMap = new Map<string, number>();
-    for (const r of rows) {
-      const catName = (r['Nhóm hàng(3 Cấp)'] || r['Nhóm hàng'] || 'Chưa phân loại').trim();
-      if (catName && !categoryMap.has(catName)) {
-        const cat = await prisma.category.upsert({
-          where: { tenantId_name: { tenantId, name: catName } },
-          update: {},
-          create: { tenantId, name: catName }
-        });
-        categoryMap.set(catName, cat.id);
+        let categoryId = defaultCategory.id;
+        if (categoryName) {
+          let cat = await prisma.category.findFirst({
+            where: { tenantId, name: categoryName }
+          });
+          if (!cat) {
+            cat = await prisma.category.create({
+              data: { tenantId, name: categoryName }
+            });
+          }
+          categoryId = cat.id;
+        }
+
+        try {
+          await prisma.product.upsert({
+            where: { tenantId_sku: { tenantId, sku } },
+            update: {
+              name, barcode, categoryId, costPrice, basePrice, stock, unit, updatedAt: new Date()
+            },
+            create: {
+              tenantId, sku, name, barcode, categoryId, costPrice, basePrice, stock, unit
+            }
+          });
+          prodCount++;
+        } catch (err: any) {
+          console.error(`   ⚠️ Lỗi sản phẩm ${sku}: ${err.message}`);
+        }
       }
     }
-
-    let prodCount = 0;
-    for (const r of rows) {
-      const sku = String(r['Mã hàng'] || '').trim();
-      const name = String(r['Tên hàng'] || '').trim();
-      if (!sku || !name) continue;
-
-      const catName = (r['Nhóm hàng(3 Cấp)'] || r['Nhóm hàng'] || 'Chưa phân loại').trim();
-      const categoryId = categoryMap.get(catName) || null;
-
-      const sellPrice = Math.max(0, parseExcelNumber(r['Giá bán']));
-      const costPrice = Math.max(0, parseExcelNumber(r['Giá vốn']));
-      const stock = parseExcelNumber(r['Tồn kho']);
-      const unit = String(r['ĐVT'] || r['Đơn vị tính'] || '').trim();
-      const isActive = String(r['Đang kinh doanh']) === '1' || r['Đang kinh doanh'] === 1 || r['Đang kinh doanh'] === 'Có';
-      const createdAt = parseExcelDate(r['Thời gian tạo']);
-
-      await prisma.product.upsert({
-        where: { tenantId_sku: { tenantId, sku } },
-        update: {
-          name, categoryId, sellPrice, costPrice, stock, unit, isActive, updatedAt: new Date()
-        },
-        create: {
-          tenantId, sku, name, categoryId, sellPrice, costPrice, stock, unit, isActive, createdAt
-        }
-      });
-      prodCount++;
-    }
-    console.log(`   ✅ Đã import ${prodCount} sản phẩm & ${categoryMap.size} nhóm hàng.\n`);
+    console.log(`   ✅ Đã import ${prodCount} sản phẩm.\n`);
   }
 
-  // Ensure default fallback product exists
+  // Fallback Product
   let fallbackProduct = await prisma.product.findFirst({ where: { tenantId } });
   if (!fallbackProduct) {
     fallbackProduct = await prisma.product.create({
-      data: { tenantId, sku: 'SP000000', name: 'Hàng hóa tự do', sellPrice: 0, costPrice: 0, stock: 9999 }
+      data: {
+        tenantId,
+        sku: 'SP000000',
+        name: 'Sản phẩm vãng lai',
+        categoryId: defaultCategory.id,
+        costPrice: 0,
+        basePrice: 0,
+        stock: 9999
+      }
     });
   }
 
   // ─── 2. KHÁCH HÀNG ───
-  const custFile = findFile(searchDir, /^DanhSachKhachHang.*\.xlsx$/i);
-  if (custFile) {
-    console.log(`👥 2. Import Khách hàng từ: ${path.basename(custFile)}`);
-    const wb = XLSX.readFile(custFile);
-    const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-    console.log(`   Đã đọc ${rows.length} dòng khách hàng.`);
-
+  const custFiles = findAllFiles(searchDir, /^DanhSachKhachHang.*\.xlsx$/i);
+  if (custFiles.length > 0) {
+    console.log(`👥 2. Import Khách hàng từ ${custFiles.length} file...`);
     let custCount = 0;
-    for (const r of rows) {
-      const code = String(r['Mã khách hàng'] || '').trim();
-      const name = String(r['Tên khách hàng'] || '').trim();
-      if (!code || !name) continue;
+    for (const custFile of custFiles) {
+      console.log(`   📄 Đang đọc: ${path.basename(custFile)}`);
+      const wb = XLSX.readFile(custFile);
+      const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
+      const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
 
-      const rawPhone = String(r['Điện thoại'] || '').trim();
-      const phone = rawPhone ? rawPhone : null;
-      const address = String(r['Địa chỉ'] || '').trim();
-      const note = String(r['Ghi chú'] || '').trim();
-      const totalDebt = parseExcelNumber(r['Nợ cần thu hiện tại'] || r['Nợ cần trả hiện tại']);
-      const createdAt = parseExcelDate(r['Ngày tạo'] || r['Thời gian tạo']);
+      for (const r of rows) {
+        const code = String(r['Mã khách hàng'] || '').trim();
+        const name = String(r['Tên khách hàng'] || '').trim();
+        if (!code || !name) continue;
 
-      try {
-        await prisma.customer.upsert({
-          where: { tenantId_code: { tenantId, code } },
-          update: {
-            name, phone, address, note, totalDebt, updatedAt: new Date()
-          },
-          create: {
-            tenantId, code, name, phone, address, note, totalDebt, createdAt
-          }
-        });
-        custCount++;
-      } catch (err: any) {
-        // If phone unique constraint failed, try setting phone null
-        if (err.code === 'P2002') {
+        const rawPhone = String(r['Điện thoại'] || r['Số điện thoại'] || '').trim();
+        const phone = rawPhone ? rawPhone : null;
+        const email = String(r['Email'] || '').trim() || null;
+        const address = String(r['Địa chỉ'] || '').trim();
+        const note = String(r['Ghi chú'] || '').trim();
+        const totalSpent = parseExcelNumber(r['Tổng bán']);
+        const totalDebt = parseExcelNumber(r['Nợ hiện tại'] || r['Nợ cần thu hiện tại']);
+        const createdAt = parseExcelDate(r['Ngày tạo'] || r['Thời gian tạo']);
+
+        try {
           await prisma.customer.upsert({
             where: { tenantId_code: { tenantId, code } },
             update: {
-              name, phone: null, address, note, totalDebt, updatedAt: new Date()
+              name, phone, email, address, note, totalSpent, totalDebt, updatedAt: new Date()
             },
             create: {
-              tenantId, code, name, phone: null, address, note, totalDebt, createdAt
+              tenantId, code, name, phone, email, address, note, totalSpent, totalDebt, createdAt
             }
           });
           custCount++;
-        } else {
-          console.error(`   ⚠️ Không thể import KH ${code} (${name}): ${err.message}`);
+        } catch (err: any) {
+          if (err.code === 'P2002') {
+            await prisma.customer.upsert({
+              where: { tenantId_code: { tenantId, code } },
+              update: {
+                name, phone: null, email: null, address, note, totalSpent, totalDebt, updatedAt: new Date()
+              },
+              create: {
+                tenantId, code, name, phone: null, email: null, address, note, totalSpent, totalDebt, createdAt
+              }
+            });
+            custCount++;
+          } else {
+            console.error(`   ⚠️ Lỗi khách hàng ${code}: ${err.message}`);
+          }
         }
       }
     }
@@ -247,60 +254,60 @@ async function main() {
   }
 
   // ─── 3. NHÀ CUNG CẤP ───
-  const suppFile = findFile(searchDir, /^DanhSachNhaCungCap.*\.xlsx$/i);
-  if (suppFile) {
-    console.log(`🏭 3. Import Nhà cung cấp từ: ${path.basename(suppFile)}`);
-    const wb = XLSX.readFile(suppFile);
-    const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-    console.log(`   Đã đọc ${rows.length} dòng nhà cung cấp.`);
-
+  const suppFiles = findAllFiles(searchDir, /^DanhSachNhaCungCap.*\.xlsx$/i);
+  if (suppFiles.length > 0) {
+    console.log(`🏭 3. Import Nhà cung cấp từ ${suppFiles.length} file...`);
     let suppCount = 0;
-    for (const r of rows) {
-      const code = String(r['Mã nhà cung cấp'] || '').trim();
-      const name = String(r['Tên nhà cung cấp'] || '').trim();
-      if (!code || !name) continue;
+    for (const suppFile of suppFiles) {
+      console.log(`   📄 Đang đọc: ${path.basename(suppFile)}`);
+      const wb = XLSX.readFile(suppFile);
+      const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
+      const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
 
-      const rawPhone = String(r['Điện thoại'] || '').trim();
-      const phone = rawPhone ? rawPhone : null;
-      const email = String(r['Email'] || '').trim() || null;
-      const address = String(r['Địa chỉ'] || '').trim();
-      const note = String(r['Ghi chú'] || '').trim();
-      const totalDebt = parseExcelNumber(r['Nợ cần trả hiện tại']);
-      const createdAt = parseExcelDate(r['Ngày tạo'] || r['Thời gian tạo']);
+      for (const r of rows) {
+        const code = String(r['Mã nhà cung cấp'] || '').trim();
+        const name = String(r['Tên nhà cung cấp'] || '').trim();
+        if (!code || !name) continue;
 
-      try {
-        await prisma.supplier.upsert({
-          where: { tenantId_code: { tenantId, code } },
-          update: {
-            name, phone, email, address, note, totalDebt, updatedAt: new Date()
-          },
-          create: {
-            tenantId, code, name, phone, email, address, note, totalDebt, createdAt
-          }
-        });
-        suppCount++;
-      } catch (err: any) {
-        if (err.code === 'P2002') {
+        const rawPhone = String(r['Điện thoại'] || '').trim();
+        const phone = rawPhone ? rawPhone : null;
+        const email = String(r['Email'] || '').trim() || null;
+        const address = String(r['Địa chỉ'] || '').trim();
+        const note = String(r['Ghi chú'] || '').trim();
+        const totalDebt = parseExcelNumber(r['Nợ cần trả hiện tại']);
+        const createdAt = parseExcelDate(r['Ngày tạo'] || r['Thời gian tạo']);
+
+        try {
           await prisma.supplier.upsert({
             where: { tenantId_code: { tenantId, code } },
             update: {
-              name, phone: null, email: null, address, note, totalDebt, updatedAt: new Date()
+              name, phone, email, address, note, totalDebt, updatedAt: new Date()
             },
             create: {
-              tenantId, code, name, phone: null, email: null, address, note, totalDebt, createdAt
+              tenantId, code, name, phone, email, address, note, totalDebt, createdAt
             }
           });
           suppCount++;
-        } else {
-          console.error(`   ⚠️ Không thể import NCC ${code} (${name}): ${err.message}`);
+        } catch (err: any) {
+          if (err.code === 'P2002') {
+            await prisma.supplier.upsert({
+              where: { tenantId_code: { tenantId, code } },
+              update: {
+                name, phone: null, email: null, address, note, totalDebt, updatedAt: new Date()
+              },
+              create: {
+                tenantId, code, name, phone: null, email: null, address, note, totalDebt, createdAt
+              }
+            });
+            suppCount++;
+          }
         }
       }
     }
     console.log(`   ✅ Đã import ${suppCount} nhà cung cấp.\n`);
   }
 
-  // Ensure default fallback supplier exists
+  // Fallback Supplier
   let fallbackSupplier = await prisma.supplier.findFirst({ where: { tenantId } });
   if (!fallbackSupplier) {
     fallbackSupplier = await prisma.supplier.create({
@@ -308,7 +315,7 @@ async function main() {
     });
   }
 
-  // Build lookups
+  // Lookups
   const allProducts = await prisma.product.findMany({ where: { tenantId } });
   const prodMap = new Map(allProducts.map(p => [p.sku.toLowerCase(), p]));
 
@@ -320,22 +327,34 @@ async function main() {
   const suppMapByCode = new Map(allSuppliers.map(s => [s.code.toLowerCase(), s]));
   const suppMapByName = new Map(allSuppliers.map(s => [s.name.toLowerCase(), s]));
 
-  // ─── 4. HÓA ĐƠN BÁN HÀNG ───
-  const orderFile = findFile(searchDir, /^DanhSachChiTietHoaDon.*\.xlsx$/i);
-  if (orderFile) {
-    console.log(`🧾 4. Import Hóa đơn từ: ${path.basename(orderFile)}`);
-    const wb = XLSX.readFile(orderFile);
-    const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-    console.log(`   Đã đọc ${rows.length} dòng chi tiết hóa đơn.`);
+  let defaultUser = await prisma.user.findFirst({ where: { tenantId } });
 
+  let maxOrderNum = 0;
+  let maxPONum = 0;
+  let maxReturnNum = 0;
+  let maxPOReturnNum = 0;
+
+  // ─── 4. HÓA ĐƠN BÁN HÀNG (Hỗ trợ đọc nhiều file theo từng tháng) ───
+  const orderFiles = findAllFiles(searchDir, /^DanhSachChiTietHoaDon.*\.xlsx$/i);
+  if (orderFiles.length > 0) {
+    console.log(`🧾 4. Import Hóa đơn từ ${orderFiles.length} file...`);
     const orderGroups = new Map<string, any[]>();
-    for (const r of rows) {
-      const code = String(r['Mã hóa đơn'] || '').trim();
-      if (!code) continue;
-      if (!orderGroups.has(code)) orderGroups.set(code, []);
-      orderGroups.get(code)!.push(r);
+
+    for (const orderFile of orderFiles) {
+      console.log(`   📄 Đang đọc: ${path.basename(orderFile)}`);
+      const wb = XLSX.readFile(orderFile);
+      const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
+      const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+
+      for (const r of rows) {
+        const code = String(r['Mã hóa đơn'] || '').trim();
+        if (!code) continue;
+        if (!orderGroups.has(code)) orderGroups.set(code, []);
+        orderGroups.get(code)!.push(r);
+      }
     }
+
+    console.log(`   Tổng cộng tìm thấy ${orderGroups.size} hóa đơn duy nhất.`);
 
     let orderCount = 0;
     for (const [code, items] of orderGroups.entries()) {
@@ -386,7 +405,7 @@ async function main() {
             tenantId,
             code,
             customerId,
-            userId,
+            userId: defaultUser?.id,
             total,
             discount,
             paid,
@@ -405,20 +424,23 @@ async function main() {
   }
 
   // ─── 5. ĐƠN NHẬP HÀNG ───
-  const poFile = findFile(searchDir, /^DanhSachChiTietNhapHang.*\.xlsx$/i);
-  if (poFile) {
-    console.log(`📥 5. Import Đơn nhập hàng từ: ${path.basename(poFile)}`);
-    const wb = XLSX.readFile(poFile);
-    const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-    console.log(`   Đã đọc ${rows.length} dòng chi tiết nhập hàng.`);
-
+  const poFiles = findAllFiles(searchDir, /^DanhSachChiTietNhapHang.*\.xlsx$/i);
+  if (poFiles.length > 0) {
+    console.log(`📥 5. Import Đơn nhập hàng từ ${poFiles.length} file...`);
     const poGroups = new Map<string, any[]>();
-    for (const r of rows) {
-      const code = String(r['Mã nhập hàng'] || r['Mã phiếu nhập'] || r['Mã phiếu'] || '').trim();
-      if (!code) continue;
-      if (!poGroups.has(code)) poGroups.set(code, []);
-      poGroups.get(code)!.push(r);
+
+    for (const poFile of poFiles) {
+      console.log(`   📄 Đang đọc: ${path.basename(poFile)}`);
+      const wb = XLSX.readFile(poFile);
+      const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
+      const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+
+      for (const r of rows) {
+        const code = String(r['Mã nhập hàng'] || r['Mã phiếu nhập'] || r['Mã phiếu'] || '').trim();
+        if (!code) continue;
+        if (!poGroups.has(code)) poGroups.set(code, []);
+        poGroups.get(code)!.push(r);
+      }
     }
 
     let poCount = 0;
@@ -485,20 +507,23 @@ async function main() {
   }
 
   // ─── 6. PHIẾU TRẢ HÀNG KHÁCH ───
-  const retFile = findFile(searchDir, /^DanhSachChiTietTraHang_[^N].*\.xlsx$/i) || findFile(searchDir, /^DanhSachChiTietTraHang_.*\.xlsx$/i);
-  if (retFile && !retFile.toLowerCase().includes('trahangnhap')) {
-    console.log(`🔄 6. Import Phiếu trả hàng từ: ${path.basename(retFile)}`);
-    const wb = XLSX.readFile(retFile);
-    const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-    console.log(`   Đã đọc ${rows.length} dòng chi tiết trả hàng.`);
-
+  const retFiles = findAllFiles(searchDir, /^DanhSachChiTietTraHang.*\.xlsx$/i).filter(f => !f.toLowerCase().includes('trahangnhap'));
+  if (retFiles.length > 0) {
+    console.log(`🔄 6. Import Phiếu trả hàng từ ${retFiles.length} file...`);
     const retGroups = new Map<string, any[]>();
-    for (const r of rows) {
-      const code = String(r['Mã trả hàng'] || '').trim();
-      if (!code) continue;
-      if (!retGroups.has(code)) retGroups.set(code, []);
-      retGroups.get(code)!.push(r);
+
+    for (const retFile of retFiles) {
+      console.log(`   📄 Đang đọc: ${path.basename(retFile)}`);
+      const wb = XLSX.readFile(retFile);
+      const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
+      const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+
+      for (const r of rows) {
+        const code = String(r['Mã trả hàng'] || '').trim();
+        if (!code) continue;
+        if (!retGroups.has(code)) retGroups.set(code, []);
+        retGroups.get(code)!.push(r);
+      }
     }
 
     let retCount = 0;
@@ -566,49 +591,51 @@ async function main() {
   }
 
   // ─── 7. SỔ QUỸ THU CHÍ ───
-  const cashFile = findFile(searchDir, /^SoQuy.*\.xlsx$/i);
-  if (cashFile) {
-    console.log(`💰 7. Import Sổ quỹ từ: ${path.basename(cashFile)}`);
-    const wb = XLSX.readFile(cashFile);
-    const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
-    const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-    console.log(`   Đã đọc ${rows.length} dòng phiếu thu/chi.`);
-
+  const cashFiles = findAllFiles(searchDir, /^SoQuy.*\.xlsx$/i);
+  if (cashFiles.length > 0) {
+    console.log(`💰 7. Import Sổ quỹ từ ${cashFiles.length} file...`);
     let cashCount = 0;
-    for (const r of rows) {
-      const code = String(r['Mã phiếu'] || '').trim();
-      if (!code) continue;
+    for (const cashFile of cashFiles) {
+      console.log(`   📄 Đang đọc: ${path.basename(cashFile)}`);
+      const wb = XLSX.readFile(cashFile);
+      const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
+      const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
 
-      const time = parseExcelDate(r['Thời gian']);
-      const categoryType = String(r['Loại thu chi'] || '').trim();
-      const type = (categoryType.includes('thu') || categoryType.includes('Thu')) ? 'INCOME' : 'EXPENSE';
-      const partner = String(r['Người nộp/nhận'] || '').trim();
-      const amount = Math.abs(parseExcelNumber(r['Giá trị']));
+      for (const r of rows) {
+        const code = String(r['Mã phiếu'] || '').trim();
+        if (!code) continue;
 
-      const matchNum = code.match(/(\d+)$/);
-      if (matchNum) {
-        const num = parseInt(matchNum[1], 10);
-        if (num > maxCashbookNum) maxCashbookNum = num;
-      }
+        const time = parseExcelDate(r['Thời gian']);
+        const categoryType = String(r['Loại thu chi'] || '').trim();
+        const type = (categoryType.includes('thu') || categoryType.includes('Thu')) ? 'INCOME' : 'EXPENSE';
+        const partner = String(r['Người nộp/nhận'] || '').trim();
+        const amount = Math.abs(parseExcelNumber(r['Giá trị']));
 
-      const existingEntry = await prisma.cashbookEntry.findFirst({
-        where: { tenantId, code }
-      });
+        const matchNum = code.match(/(\d+)$/);
+        if (matchNum) {
+          const num = parseInt(matchNum[1], 10);
+          if (num > maxCashbookNum) maxCashbookNum = num;
+        }
 
-      if (!existingEntry) {
-        await prisma.cashbookEntry.create({
-          data: {
-            tenantId,
-            code,
-            type,
-            category: categoryType || (type === 'INCOME' ? 'Thu khác' : 'Chi khác'),
-            amount,
-            partnerName: partner || 'N/A',
-            userId,
-            createdAt: time
-          }
+        const existingEntry = await prisma.cashbookEntry.findFirst({
+          where: { tenantId, code }
         });
-        cashCount++;
+
+        if (!existingEntry) {
+          await prisma.cashbookEntry.create({
+            data: {
+              tenantId,
+              code,
+              type,
+              category: categoryType || (type === 'INCOME' ? 'Thu khác' : 'Chi khác'),
+              amount,
+              partnerName: partner || 'N/A',
+              userId: defaultUser?.id || 1,
+              createdAt: time
+            }
+          });
+          cashCount++;
+        }
       }
     }
     console.log(`   ✅ Đã import ${cashCount} phiếu thu/chi sổ quỹ.\n`);
