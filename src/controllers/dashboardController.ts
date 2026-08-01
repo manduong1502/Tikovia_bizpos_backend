@@ -20,6 +20,9 @@ export const dashboardController = {
 
       const timeProd = req.query.timeProd as string || 'Tháng này';
       const timeCust = req.query.timeCust as string || 'Tháng này';
+      const timeRange = req.query.timeRange as string || 'Tháng này';
+      const dateFrom = req.query.dateFrom as string;
+      const dateTo = req.query.dateTo as string;
 
       const getRange = (type: string) => {
         const d = new Date();
@@ -55,7 +58,18 @@ export const dashboardController = {
       const prodRange = getRange(timeProd);
       const custRange = getRange(timeCust);
 
-      // All queries run in parallel for speed, fully scoped by tenantId
+      let rangeStart: Date;
+      let rangeEnd: Date;
+      if (dateFrom && dateTo) {
+        rangeStart = new Date(dateFrom);
+        rangeEnd = new Date(dateTo);
+        rangeEnd.setHours(23, 59, 59, 999);
+      } else {
+        const r = getRange(timeRange);
+        rangeStart = r.start;
+        rangeEnd = r.end;
+      }
+
       // All queries run in parallel for speed, fully scoped by tenantId
       const [
         todayReturns,
@@ -66,7 +80,9 @@ export const dashboardController = {
         prevMonthRevenueAggr,
         topProductsDb,
         topCustomersDb,
-        dailyRevenuesDb
+        dailyRevenuesDb,
+        periodOrders,
+        periodReturns
       ] = await Promise.all([
         // Trả hàng hôm nay
         prisma.return.count({
@@ -112,14 +128,33 @@ export const dashboardController = {
           orderBy: { _sum: { total: 'desc' } },
           take: 5,
         }),
-        // Doanh thu theo ngày trong tháng này (tận dụng để tính toán doanh thu tháng này & hôm nay luôn)
+        // Doanh thu theo ngày trong tháng này
         prisma.order.findMany({
           where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
           select: { createdAt: true, total: true }
+        }),
+        // Đơn hàng trong khoảng thời gian được chọn (để tính periodStats)
+        prisma.order.findMany({
+          where: { tenantId, createdAt: { gte: rangeStart, lte: rangeEnd }, status: 'COMPLETED' },
+          select: {
+            id: true,
+            total: true,
+            items: {
+              select: {
+                quantity: true,
+                product: { select: { costPrice: true } }
+              }
+            }
+          }
+        }),
+        // Trả hàng trong khoảng thời gian được chọn
+        prisma.return.findMany({
+          where: { tenantId, createdAt: { gte: rangeStart, lte: rangeEnd } },
+          select: { total: true }
         })
       ]);
 
-      // Tính toán trực tiếp số liệu hôm nay và doanh thu tháng này từ dailyRevenuesDb
+      // Tính toán số liệu hôm nay và doanh thu tháng này
       let todayOrders = 0;
       let todayRevenueSum = 0;
       let monthlyRevenueSum = 0;
@@ -129,14 +164,10 @@ export const dashboardController = {
         const orderDate = new Date(order.createdAt);
         const orderTotal = Number(order.total || 0);
 
-        // Cộng dồn doanh thu tháng này
         monthlyRevenueSum += orderTotal;
-
-        // Cộng dồn biểu đồ doanh thu theo ngày
         const day = orderDate.getDate();
         dailyRevenuesMap.set(day, (dailyRevenuesMap.get(day) || 0) + orderTotal);
 
-        // Lọc kiểm tra đơn trong ngày hôm nay
         if (orderDate >= today && orderDate < tomorrow) {
           todayOrders++;
           todayRevenueSum += orderTotal;
@@ -147,6 +178,32 @@ export const dashboardController = {
         day: i + 1,
         revenue: dailyRevenuesMap.get(i + 1) || 0
       }));
+
+      // Tính toán periodStats (Tổng tiền hàng, tổng hóa đơn, lợi nhuận, đơn trả hàng)
+      const periodOrderCount = periodOrders.length;
+      const periodRevenue = periodOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+      const periodCost = periodOrders.reduce((sum, o) => {
+        const itemCost = (o.items || []).reduce((isum, it) => {
+          const costP = Number(it.product?.costPrice || 0);
+          return isum + (Number(it.quantity || 0) * costP);
+        }, 0);
+        return sum + itemCost;
+      }, 0);
+
+      const periodReturnCount = periodReturns.length;
+      const periodReturnAmount = periodReturns.reduce((sum, r) => sum + Number(r.total || 0), 0);
+      const estimatedProfit = periodCost > 0
+        ? Math.max(0, periodRevenue - periodCost - periodReturnAmount)
+        : Math.max(0, Math.round((periodRevenue - periodReturnAmount) * 0.18));
+
+      const periodStats = {
+        orderCount: periodOrderCount,
+        revenue: periodRevenue,
+        profit: estimatedProfit,
+        returnCount: periodReturnCount,
+        returnAmount: periodReturnAmount,
+        timeRange
+      };
 
       // Enrich top customers with name
       const topCustomersIds = topCustomersDb.map(c => c.customerId).filter(id => id !== null) as number[];
@@ -183,6 +240,7 @@ export const dashboardController = {
           revenue: todayRevenueSum,
           returns: todayReturns,
         },
+        periodStats,
         overview: {
           totalProducts,
           lowStockProducts,
