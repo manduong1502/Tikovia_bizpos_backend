@@ -116,6 +116,23 @@ function findFile(dir: string, pattern: RegExp): string | null {
   return all[0];
 }
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 5, delayMs = 150): Promise<T> {
+  let lastError: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      if (err?.message?.includes('deadlock detected') || err?.code === '40P01') {
+        await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
 async function main() {
   console.log('🚀 BẮT ĐẦU NHẬP DỮ LIỆU EXCEL KIOTVIET VÀO HỆ THỐNG...\n');
 
@@ -494,7 +511,7 @@ async function main() {
         : (reportOrderCostMap.size > 0 ? 0 : itemsCostSum);
 
       if (!existingOrder) {
-        await prisma.order.create({
+        await withRetry(() => prisma.order.create({
           data: {
             tenantId,
             code,
@@ -512,13 +529,13 @@ async function main() {
               create: orderItemsData
             }
           }
-        });
+        }));
         orderCount++;
       } else {
-        await prisma.order.update({
+        await withRetry(() => prisma.order.update({
           where: { id: existingOrder.id },
           data: { costPrice: orderCostPrice }
-        });
+        }));
       }
     }
     console.log(`   ✅ Đã import ${orderCount} hóa đơn bán hàng.\n`);
