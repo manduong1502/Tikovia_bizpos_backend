@@ -110,6 +110,10 @@ export const reportController = {
 
       const returnDetails = returns.map(r => {
         const totalQty = r.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
+        const totalCost = r.items.reduce((costSum, item) => {
+          const costUnit = Number((item as any).product?.costPrice || 0);
+          return costSum + costUnit * Number(item.quantity);
+        }, 0);
         return {
           id: r.id,
           code: r.code || `TH00000${r.id}`,
@@ -117,6 +121,7 @@ export const reportController = {
           quantity: totalQty,
           revenue: -Number(r.total),
           paid: -Number(r.paid),
+          costPrice: totalCost,
           otherFee: 0,
           vat: 0,
           rounding: 0,
