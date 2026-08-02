@@ -52,7 +52,12 @@ export const reportController = {
             createdAt: { gte: startDate, lte: endDate },
             status: 'COMPLETED' 
           },
-          select: { total: true }
+          include: {
+            items: true,
+            customer: true,
+            user: { select: { id: true, username: true } }
+          },
+          orderBy: { createdAt: 'desc' }
         }),
         prisma.cashbookEntry.findMany({
           where: { tenantId, createdAt: { gte: startDate, lte: endDate } }
@@ -62,6 +67,7 @@ export const reportController = {
       const totalSales = orders.reduce((sum, o) => sum + Number(o.total), 0);
       const totalPaid = orders.reduce((sum, o) => sum + Number(o.paid), 0);
       const totalReturns = returns.reduce((sum, r) => sum + Number(r.total), 0);
+      const totalReturnPaid = returns.reduce((sum, r) => sum + Number(r.paid), 0);
       
       const income = cashbook.filter(c => c.type === 'INCOME').reduce((sum, c) => sum + Number(c.amount), 0);
       const expense = cashbook.filter(c => c.type === 'EXPENSE').reduce((sum, c) => sum + Number(c.amount), 0);
@@ -82,11 +88,12 @@ export const reportController = {
           time: o.createdAt,
           quantity: totalQty,
           revenue: Number(o.total),
+          paid: Number(o.paid),
           otherFee: 0,
           vat: 0,
           rounding: 0,
           returnFee: 0,
-          netRevenue: Number(o.total),
+          netRevenue: Number(o.paid),
           customerName: o.customer?.name || 'Khách lẻ',
           customerPhone: o.customer?.phone || '',
           createdBy: o.user?.username || 'Võ Thành Huy',
@@ -94,16 +101,39 @@ export const reportController = {
         };
       });
 
+      const returnDetails = returns.map(r => {
+        const totalQty = r.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
+        return {
+          id: r.id,
+          code: r.code || `TH00000${r.id}`,
+          time: r.createdAt,
+          quantity: totalQty,
+          revenue: -Number(r.total),
+          paid: -Number(r.paid),
+          otherFee: 0,
+          vat: 0,
+          rounding: 0,
+          returnFee: 0,
+          netRevenue: -Number(r.paid),
+          customerName: r.customer?.name || 'Khách lẻ',
+          customerPhone: r.customer?.phone || '',
+          createdBy: (r.user as any)?.username || 'Võ Thành Huy'
+        };
+      });
+
       res.json({
         dateRange: { from: startDate, to: endDate },
         orderCount: orders.length,
+        returnCount: returns.length,
         totalSales,
         totalPaid,
         totalReturns,
+        totalReturnPaid,
         cashbookIncome: income,
         cashbookExpense: expense,
         netRevenue: totalSales - totalReturns,
-        transactions: transactionDetails
+        transactions: transactionDetails,
+        returns: returnDetails
       });
     } catch (error) {
       next(error);
