@@ -63,10 +63,10 @@ async function generateOrderCode(tenantId: number, txClient?: any): Promise<stri
 
 function parseExcelDate(val: any): Date | null {
   if (!val) return null;
-  if (val instanceof Date && !isNaN(val.getTime())) return val;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : new Date(val.getTime() - (7 * 3600 * 1000));
   
   if (typeof val === 'number') {
-    const ms = Math.round((val - 25569) * 86400 * 1000);
+    const ms = Math.round((val - 25569) * 86400 * 1000) - (7 * 3600 * 1000);
     const d = new Date(ms);
     return isNaN(d.getTime()) ? null : d;
   }
@@ -91,9 +91,24 @@ function parseExcelDate(val: any): Date | null {
       
       if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
         const fullYear = year < 100 ? 2000 + year : year;
-        const d = new Date(fullYear, month, day, hour, minute, second);
+        const d = new Date(Date.UTC(fullYear, month, day, hour - 7, minute, second));
         if (!isNaN(d.getTime())) return d;
       }
+    }
+  }
+
+  if (datePart.includes('-')) {
+    const dParts = datePart.split('-');
+    if (dParts.length === 3) {
+      const year = dParts[0].length === 4 ? parseInt(dParts[0], 10) : parseInt(dParts[2], 10);
+      const month = parseInt(dParts[1], 10) - 1;
+      const day = dParts[0].length === 4 ? parseInt(dParts[2], 10) : parseInt(dParts[0], 10);
+      const tParts = timePart.split(':');
+      const hour = parseInt(tParts[0] || '0', 10);
+      const minute = parseInt(tParts[1] || '0', 10);
+      const second = parseInt(tParts[2] || '0', 10);
+      const d = new Date(Date.UTC(year, month, day, hour - 7, minute, second));
+      if (!isNaN(d.getTime())) return d;
     }
   }
 

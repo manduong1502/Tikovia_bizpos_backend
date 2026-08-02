@@ -23,17 +23,42 @@ const createReturnSchema = z.object({
 
 function parseExcelDate(val: any): Date | null {
   if (!val) return null;
-  if (val instanceof Date && !isNaN(val.getTime())) return val;
-  const num = Number(val);
-  if (!isNaN(num) && num > 10000 && num < 99999) {
-    const ms = (num - 25569) * 86400 * 1000;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : new Date(val.getTime() - (7 * 3600 * 1000));
+  
+  if (typeof val === 'number') {
+    const ms = Math.round((val - 25569) * 86400 * 1000) - (7 * 3600 * 1000);
     const d = new Date(ms);
-    if (!isNaN(d.getTime())) return d;
+    return isNaN(d.getTime()) ? null : d;
   }
+  
   const str = String(val).trim();
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) return d;
-  return null;
+  if (!str) return null;
+
+  const parts = str.split(' ');
+  const datePart = parts[0];
+  const timePart = parts[1] || '00:00:00';
+
+  if (datePart.includes('/')) {
+    const dParts = datePart.split('/');
+    if (dParts.length === 3) {
+      const day = parseInt(dParts[0], 10);
+      const month = parseInt(dParts[1], 10) - 1;
+      const year = parseInt(dParts[2], 10);
+      const tParts = timePart.split(':');
+      const hour = parseInt(tParts[0] || '0', 10);
+      const minute = parseInt(tParts[1] || '0', 10);
+      const second = parseInt(tParts[2] || '0', 10);
+      
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        const fullYear = year < 100 ? 2000 + year : year;
+        const d = new Date(Date.UTC(fullYear, month, day, hour - 7, minute, second));
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+  }
+
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? null : fallback;
 }
 
 // Auto-generate return code using SequenceTracker scoped by tenantId

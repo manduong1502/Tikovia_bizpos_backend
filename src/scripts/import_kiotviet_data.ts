@@ -41,10 +41,10 @@ function parseExcelNumber(val: any, defaultVal = 0): number {
 
 function parseExcelDate(val: any): Date {
   if (!val) return new Date();
-  if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
+  if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : new Date(val.getTime() - (7 * 3600 * 1000));
   
   if (typeof val === 'number') {
-    const ms = Math.round((val - 25569) * 86400 * 1000);
+    const ms = Math.round((val - 25569) * 86400 * 1000) - (7 * 3600 * 1000);
     const d = new Date(ms);
     return isNaN(d.getTime()) ? new Date() : d;
   }
@@ -52,7 +52,6 @@ function parseExcelDate(val: any): Date {
   const str = String(val).trim();
   if (!str) return new Date();
 
-  // Try parsing DD/MM/YYYY HH:mm:ss or DD/MM/YYYY HH:mm or DD/MM/YYYY
   const parts = str.split(' ');
   const datePart = parts[0];
   const timePart = parts[1] || '00:00:00';
@@ -70,7 +69,7 @@ function parseExcelDate(val: any): Date {
       
       if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
         const fullYear = year < 100 ? 2000 + year : year;
-        const d = new Date(fullYear, month, day, hour, minute, second);
+        const d = new Date(Date.UTC(fullYear, month, day, hour - 7, minute, second));
         if (!isNaN(d.getTime())) return d;
       }
     }
@@ -79,27 +78,15 @@ function parseExcelDate(val: any): Date {
   if (datePart.includes('-')) {
     const dParts = datePart.split('-');
     if (dParts.length === 3) {
-      if (dParts[0].length === 4) {
-        const year = parseInt(dParts[0], 10);
-        const month = parseInt(dParts[1], 10) - 1;
-        const day = parseInt(dParts[2], 10);
-        const tParts = timePart.split(':');
-        const hour = parseInt(tParts[0] || '0', 10);
-        const minute = parseInt(tParts[1] || '0', 10);
-        const second = parseInt(tParts[2] || '0', 10);
-        const d = new Date(year, month, day, hour, minute, second);
-        if (!isNaN(d.getTime())) return d;
-      } else {
-        const day = parseInt(dParts[0], 10);
-        const month = parseInt(dParts[1], 10) - 1;
-        const year = parseInt(dParts[2], 10);
-        const tParts = timePart.split(':');
-        const hour = parseInt(tParts[0] || '0', 10);
-        const minute = parseInt(tParts[1] || '0', 10);
-        const second = parseInt(tParts[2] || '0', 10);
-        const d = new Date(year, month, day, hour, minute, second);
-        if (!isNaN(d.getTime())) return d;
-      }
+      const year = dParts[0].length === 4 ? parseInt(dParts[0], 10) : parseInt(dParts[2], 10);
+      const month = parseInt(dParts[1], 10) - 1;
+      const day = dParts[0].length === 4 ? parseInt(dParts[2], 10) : parseInt(dParts[0], 10);
+      const tParts = timePart.split(':');
+      const hour = parseInt(tParts[0] || '0', 10);
+      const minute = parseInt(tParts[1] || '0', 10);
+      const second = parseInt(tParts[2] || '0', 10);
+      const d = new Date(Date.UTC(year, month, day, hour - 7, minute, second));
+      if (!isNaN(d.getTime())) return d;
     }
   }
 
