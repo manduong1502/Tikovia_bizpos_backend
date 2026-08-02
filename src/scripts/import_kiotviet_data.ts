@@ -503,11 +503,6 @@ async function main() {
             }
           }
         });
-            items: {
-              create: orderItemsData
-            }
-          }
-        });
         orderCount++;
       }
     }
