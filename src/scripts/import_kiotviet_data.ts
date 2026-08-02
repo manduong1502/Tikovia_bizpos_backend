@@ -791,30 +791,30 @@ async function main() {
   // ─── 7c. ĐỒNG BỘ TIỀN KHÁCH ĐÃ TRẢ TỪ PHIẾU THU SỔ QUỸ (TTHD...) ───
   console.log('🔄 7c. Đồng bộ thanh toán hóa đơn từ Sổ quỹ...');
   const tthdEntries = await prisma.cashbookEntry.findMany({
-    where: { tenantId, type: 'INCOME', code: { startsWith: 'TTHD' }, status: 'completed' }
+    where: { tenantId, type: 'INCOME', code: { startsWith: 'TTHD' } }
   });
 
   const cashPaidMap = new Map<string, number>();
   for (const entry of tthdEntries) {
-    const match = entry.code.match(/^TT(HD\d+)/i);
+    const match = entry.code.match(/^TT(HD[A-Za-z0-9._-]+)/i);
     if (match) {
-      const baseCode = match[1].toUpperCase();
+      const baseCode = match[1].toLowerCase();
       const amt = Number(entry.amount || 0);
-      cashPaidMap.set(baseCode, amt);
+      cashPaidMap.set(baseCode, (cashPaidMap.get(baseCode) || 0) + amt);
     }
   }
 
   let syncedOrdersCount = 0;
   for (const [baseCode, cashPaidAmt] of cashPaidMap.entries()) {
     const matchedOrders = await prisma.order.findMany({
-      where: { tenantId, code: { startsWith: baseCode }, paid: 0 }
+      where: { tenantId, code: { equals: baseCode, mode: 'insensitive' } }
     });
 
     for (const order of matchedOrders) {
-      if (Number(order.total) === cashPaidAmt) {
+      if (Number(order.paid) < cashPaidAmt) {
         await prisma.order.update({
           where: { id: order.id },
-          data: { paid: cashPaidAmt }
+          data: { paid: Math.min(cashPaidAmt, Number(order.total)) }
         });
         syncedOrdersCount++;
       }
