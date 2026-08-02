@@ -126,23 +126,33 @@ async function main() {
   console.log(`📁 Thư mục chứa file dữ liệu: ${searchDir}\n`);
 
   console.log('🧹 0. Xóa sạch dữ liệu cũ trong Database...');
-  await prisma.orderItem.deleteMany({});
-  await prisma.returnItem.deleteMany({});
-  await prisma.purchaseOrderItem.deleteMany({});
-  await prisma.purchaseReturnItem.deleteMany({});
-  await prisma.inventoryCheckItem.deleteMany({});
-  await prisma.return.deleteMany({});
-  await prisma.order.deleteMany({});
-  await prisma.purchaseReturn.deleteMany({});
-  await prisma.purchaseOrder.deleteMany({});
-  await prisma.inventoryCheck.deleteMany({});
-  await prisma.cashbookEntry.deleteMany({});
-  await prisma.cashbookPartner.deleteMany({});
-  await prisma.product.deleteMany({});
-  await prisma.category.deleteMany({});
-  await prisma.brand.deleteMany({});
-  await prisma.customer.deleteMany({});
-  await prisma.supplier.deleteMany({});
+  try {
+    await prisma.$executeRawUnsafe(`
+      TRUNCATE TABLE 
+        "OrderItem", "ReturnItem", "PurchaseOrderItem", "PurchaseReturnItem", "InventoryCheckItem",
+        "Return", "Order", "PurchaseReturn", "PurchaseOrder", "InventoryCheck",
+        "CashbookEntry", "CashbookPartner", "Product", "Category", "Brand", "Customer", "Supplier"
+      RESTART IDENTITY CASCADE;
+    `);
+  } catch (e) {
+    await prisma.orderItem.deleteMany({});
+    await prisma.returnItem.deleteMany({});
+    await prisma.purchaseOrderItem.deleteMany({});
+    await prisma.purchaseReturnItem.deleteMany({});
+    await prisma.inventoryCheckItem.deleteMany({});
+    await prisma.return.deleteMany({});
+    await prisma.order.deleteMany({});
+    await prisma.purchaseReturn.deleteMany({});
+    await prisma.purchaseOrder.deleteMany({});
+    await prisma.inventoryCheck.deleteMany({});
+    await prisma.cashbookEntry.deleteMany({});
+    await prisma.cashbookPartner.deleteMany({});
+    await prisma.product.deleteMany({});
+    await prisma.category.deleteMany({});
+    await prisma.brand.deleteMany({});
+    await prisma.customer.deleteMany({});
+    await prisma.supplier.deleteMany({});
+  }
   await prisma.sequenceTracker.updateMany({ data: { value: 0 } });
   console.log('   ✅ Đã xóa sạch toàn bộ dữ liệu cũ.\n');
 
