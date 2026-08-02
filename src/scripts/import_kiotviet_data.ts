@@ -469,8 +469,8 @@ async function main() {
           const itemTotal = parseExcelNumber(it['Thành tiền']) || (qty * price - itemDiscount);
 
           const repKey = `${code.toLowerCase()}_${sku}`;
-          const itemCostPrice = reportCostMap.has(repKey) ? reportCostMap.get(repKey)! : (parseExcelNumber(it['Giá vốn']) || prod.costPrice);
-          itemsCostSum += qty * itemCostPrice;
+          const itemCostPrice = reportCostMap.has(repKey) ? reportCostMap.get(repKey)! : (parseExcelNumber(it['Giá vốn']) || Number(prod.costPrice));
+          itemsCostSum += qty * Number(itemCostPrice);
 
           return {
             productId: prod.id,
