@@ -134,8 +134,6 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 5, delayMs = 150): P
 }
 
 async function main() {
-  console.log('🚀 BẮT ĐẦU NHẬP DỮ LIỆU EXCEL KIOTVIET VÀO HỆ THỐNG...\n');
-
   const searchDirs = [
     path.join(__dirname, '../../data'),
     path.join(__dirname, '../data'),
@@ -150,8 +148,29 @@ async function main() {
     '/app'
   ];
 
-  let searchDir = searchDirs.find(d => fs.existsSync(d) && fs.readdirSync(d).some(f => f.endsWith('.xlsx'))) || process.cwd();
-  console.log(`📁 Thư mục chứa file dữ liệu: ${searchDir}\n`);
+  const validDirs = searchDirs.filter(d => {
+    try {
+      return fs.existsSync(d) && fs.readdirSync(d).some(f => f.toLowerCase().endsWith('.xlsx'));
+    } catch (e) {
+      return false;
+    }
+  });
+
+  let searchDir = process.cwd();
+  let newestTime = 0;
+  for (const d of validDirs) {
+    try {
+      const files = fs.readdirSync(d).filter(f => f.toLowerCase().endsWith('.xlsx'));
+      for (const f of files) {
+        const mtime = fs.statSync(path.join(d, f)).mtimeMs;
+        if (mtime > newestTime) {
+          newestTime = mtime;
+          searchDir = d;
+        }
+      }
+    } catch (e) {}
+  }
+  console.log(`📁 Thư mục chứa file dữ liệu mới nhất: ${searchDir}\n`);
 
   console.log('🧹 0. Xóa sạch dữ liệu cũ trong Database...');
   try {

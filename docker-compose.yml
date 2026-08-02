@@ -34,6 +34,8 @@ services:
       PORT: "4001"
       NODE_ENV: "production"
       CORS_ORIGIN: "https://bizpos.tikovia.vn,http://localhost:5173,https://delivery.tikovia.vn,http://localhost:3000,http://localhost:8080"
+    volumes:
+      - /mnt/ssd500/tiko:/mnt/ssd500/tiko
     depends_on:
       bizpos-db:
         condition: service_healthy
