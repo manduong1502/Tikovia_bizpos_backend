@@ -385,6 +385,7 @@ async function main() {
 
   // ─── 4. HÓA ĐƠN BÁN HÀNG (Hỗ trợ đọc nhiều file theo từng tháng) ───
   const reportCostMap = new Map<string, number>();
+  const reportOrderCostMap = new Map<string, number>();
   const reportFiles = findAllFiles(searchDir, /^BaoCao.*\.xlsx$/i);
   if (reportFiles.length > 0) {
     console.log(`📊 Đang đọc ${reportFiles.length} file Báo cáo để trích xuất Giá vốn lịch sử...`);
@@ -397,13 +398,17 @@ async function main() {
           const orderCode = String(r['Mã giao dịch'] || r['Mã hóa đơn'] || '').trim().toLowerCase();
           const sku = String(r['Mã hàng'] || '').trim().toLowerCase();
           const itemCost = parseExcelNumber(r['Giá vốn/SP'] || r['Đơn giá vốn'] || r['Giá vốn']);
-          if (orderCode && sku && itemCost > 0) {
+          const orderCost = parseExcelNumber(r['Tổng giá vốn (theo giao dịch)']);
+          if (orderCode && sku) {
             reportCostMap.set(`${orderCode}_${sku}`, itemCost);
+          }
+          if (orderCode && orderCost > 0) {
+            reportOrderCostMap.set(orderCode, orderCost);
           }
         }
       } catch (e) {}
     }
-    console.log(`   ✅ Đã nạp ${reportCostMap.size} bản ghi giá vốn lịch sử từ file báo cáo.\n`);
+    console.log(`   ✅ Đã nạp ${reportCostMap.size} bản ghi giá vốn lịch sử và ${reportOrderCostMap.size} tổng giá vốn đơn hàng từ file báo cáo.\n`);
   }
 
   const orderFiles = findAllFiles(searchDir, /^DanhSachChiTietHoaDon.*\.xlsx$/i);
@@ -454,6 +459,7 @@ async function main() {
       });
 
       if (!existingOrder) {
+        let itemsCostSum = 0;
         const orderItemsData = items.map(it => {
           const sku = String(it['Mã hàng'] || '').trim().toLowerCase();
           const prod = prodMap.get(sku) || fallbackProduct;
@@ -463,7 +469,8 @@ async function main() {
           const itemTotal = parseExcelNumber(it['Thành tiền']) || (qty * price - itemDiscount);
 
           const repKey = `${code.toLowerCase()}_${sku}`;
-          const itemCostPrice = reportCostMap.get(repKey) || parseExcelNumber(it['Giá vốn']) || prod.costPrice;
+          const itemCostPrice = reportCostMap.has(repKey) ? reportCostMap.get(repKey)! : (parseExcelNumber(it['Giá vốn']) || prod.costPrice);
+          itemsCostSum += qty * itemCostPrice;
 
           return {
             productId: prod.id,
@@ -475,18 +482,27 @@ async function main() {
           };
         });
 
+        const orderCostPrice = reportOrderCostMap.get(code.toLowerCase()) || itemsCostSum;
+
         await prisma.order.create({
           data: {
             tenantId,
             code,
             customerId,
             userId,
+            subtotal: total + discount,
             total,
             discount,
+            costPrice: orderCostPrice,
             paid,
             note,
             status,
             createdAt,
+            items: {
+              create: orderItemsData
+            }
+          }
+        });
             items: {
               create: orderItemsData
             }
