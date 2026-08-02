@@ -98,7 +98,15 @@ function findAllFiles(dir: string, pattern: RegExp): string[] {
   if (!fs.existsSync(dir)) return [];
   const files = fs.readdirSync(dir);
   const matches = files.filter(f => pattern.test(f));
-  return matches.map(f => path.join(dir, f));
+  const fullPaths = matches.map(f => path.join(dir, f));
+  fullPaths.sort((a, b) => {
+    try {
+      return fs.statSync(a).mtimeMs - fs.statSync(b).mtimeMs;
+    } catch (e) {
+      return a.localeCompare(b);
+    }
+  });
+  return fullPaths;
 }
 
 function findFile(dir: string, pattern: RegExp): string | null {
@@ -263,8 +271,8 @@ async function main() {
         const email = String(r['Email'] || '').trim() || null;
         const address = String(r['Địa chỉ'] || '').trim();
         const note = String(r['Ghi chú'] || '').trim();
-        const totalSpent = parseExcelNumber(r['Tổng bán']);
-        const totalDebt = parseExcelNumber(r['Nợ hiện tại'] || r['Nợ cần thu hiện tại']);
+        const totalSpent = parseExcelNumber(r['Tổng bán trừ trả hàng'] || r['Tổng bán']);
+        const totalDebt = parseExcelNumber(r['Nợ cần thu hiện tại'] || r['Nợ hiện tại']);
         const createdAt = parseExcelDate(r['Ngày tạo'] || r['Thời gian tạo']);
 
         try {
