@@ -692,26 +692,23 @@ async function main() {
     if (match) {
       const baseCode = match[1].toUpperCase();
       const amt = Number(entry.amount || 0);
-      cashPaidMap.set(baseCode, (cashPaidMap.get(baseCode) || 0) + amt);
+      cashPaidMap.set(baseCode, amt);
     }
   }
 
   let syncedOrdersCount = 0;
-  for (const [baseCode, totalCashPaid] of cashPaidMap.entries()) {
+  for (const [baseCode, cashPaidAmt] of cashPaidMap.entries()) {
     const matchedOrders = await prisma.order.findMany({
-      where: { tenantId, code: { startsWith: baseCode } }
+      where: { tenantId, code: { startsWith: baseCode }, paid: 0 }
     });
 
     for (const order of matchedOrders) {
-      if (Number(order.paid) === 0) {
-        const newPaid = Math.min(Number(order.total), totalCashPaid);
-        if (newPaid > 0) {
-          await prisma.order.update({
-            where: { id: order.id },
-            data: { paid: newPaid }
-          });
-          syncedOrdersCount++;
-        }
+      if (Number(order.total) === cashPaidAmt) {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { paid: cashPaidAmt }
+        });
+        syncedOrdersCount++;
       }
     }
   }
