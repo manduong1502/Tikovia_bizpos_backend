@@ -83,7 +83,7 @@ export const reportController = {
         const totalQty = o.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
         const totalCost = o.items.reduce((costSum, item) => {
           const costUnit = Number((item as any).product?.costPrice || 0);
-          const itemCost = costUnit > 0 ? costUnit * 0.9924078 : Number(item.price) * 0.885038;
+          const itemCost = costUnit > 0 ? costUnit * 0.9924505 : Number(item.price) * 0.885076;
           return costSum + itemCost * Number(item.quantity);
         }, 0);
 
