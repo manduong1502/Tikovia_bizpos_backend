@@ -109,10 +109,16 @@ function findAllFiles(dir: string, pattern: RegExp): string[] {
   return fullPaths;
 }
 
-function findFile(dir: string, pattern: RegExp): string | null {
+function findNewestFile(dir: string, pattern: RegExp): string | null {
   const all = findAllFiles(dir, pattern);
   if (all.length === 0) return null;
-  all.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
+  all.sort((a, b) => {
+    try {
+      return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+    } catch (e) {
+      return b.localeCompare(a);
+    }
+  });
   return all[0];
 }
 
@@ -218,13 +224,13 @@ async function main() {
     });
   }
 
-  // ─── 1. SẢN PHẨM ───
-  const prodFiles = findAllFiles(searchDir, /^DanhSachSanPham.*\.xlsx$/i);
+  // ─── 1. SẢN PHẨM (Chỉ lấy 1 file mới nhất) ───
+  const newestProdFile = findNewestFile(searchDir, /^DanhSachSanPham.*\.xlsx$/i);
+  const prodFiles = newestProdFile ? [newestProdFile] : [];
   if (prodFiles.length > 0) {
-    console.log(`📦 1. Import Sản phẩm từ ${prodFiles.length} file...`);
+    console.log(`📦 1. Import Sản phẩm từ file mới nhất: ${path.basename(prodFiles[0])}...`);
     let prodCount = 0;
     for (const prodFile of prodFiles) {
-      console.log(`   📄 Đang đọc: ${path.basename(prodFile)}`);
       const wb = XLSX.readFile(prodFile);
       const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
       const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
@@ -289,13 +295,13 @@ async function main() {
     });
   }
 
-  // ─── 2. KHÁCH HÀNG ───
-  const custFiles = findAllFiles(searchDir, /^DanhSachKhachHang.*\.xlsx$/i);
+  // ─── 2. KHÁCH HÀNG (Chỉ lấy 1 file mới nhất) ───
+  const newestCustFile = findNewestFile(searchDir, /^DanhSachKhachHang.*\.xlsx$/i);
+  const custFiles = newestCustFile ? [newestCustFile] : [];
   if (custFiles.length > 0) {
-    console.log(`👥 2. Import Khách hàng từ ${custFiles.length} file...`);
+    console.log(`👥 2. Import Khách hàng từ file mới nhất: ${path.basename(custFiles[0])}...`);
     let custCount = 0;
     for (const custFile of custFiles) {
-      console.log(`   📄 Đang đọc: ${path.basename(custFile)}`);
       const wb = XLSX.readFile(custFile);
       const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
       const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
@@ -346,13 +352,13 @@ async function main() {
     console.log(`   ✅ Đã import ${custCount} khách hàng.\n`);
   }
 
-  // ─── 3. NHÀ CUNG CẤP ───
-  const suppFiles = findAllFiles(searchDir, /^DanhSachNhaCungCap.*\.xlsx$/i);
+  // ─── 3. NHÀ CUNG CẤP (Chỉ lấy 1 file mới nhất) ───
+  const newestSuppFile = findNewestFile(searchDir, /^DanhSachNhaCungCap.*\.xlsx$/i);
+  const suppFiles = newestSuppFile ? [newestSuppFile] : [];
   if (suppFiles.length > 0) {
-    console.log(`🏭 3. Import Nhà cung cấp từ ${suppFiles.length} file...`);
+    console.log(`🏭 3. Import Nhà cung cấp từ file mới nhất: ${path.basename(suppFiles[0])}...`);
     let suppCount = 0;
     for (const suppFile of suppFiles) {
-      console.log(`   📄 Đang đọc: ${path.basename(suppFile)}`);
       const wb = XLSX.readFile(suppFile);
       const sheetName = wb.SheetNames[wb.SheetNames.length - 1];
       const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
@@ -433,9 +439,10 @@ async function main() {
   // ─── 4. HÓA ĐƠN BÁN HÀNG (Hỗ trợ đọc nhiều file theo từng tháng) ───
   const reportCostMap = new Map<string, number>();
   const reportOrderCostMap = new Map<string, number>();
-  const reportFiles = findAllFiles(searchDir, /^BaoCao.*\.xlsx$/i);
+  const newestReportFile = findNewestFile(searchDir, /^BaoCaoBanHangTheoLoiNhuan.*\.xlsx$/i) || findNewestFile(searchDir, /^BaoCao.*\.xlsx$/i);
+  const reportFiles = newestReportFile ? [newestReportFile] : [];
   if (reportFiles.length > 0) {
-    console.log(`📊 Đang đọc ${reportFiles.length} file Báo cáo để trích xuất Giá vốn lịch sử...`);
+    console.log(`📊 Đang đọc file Báo cáo mới nhất (${path.basename(reportFiles[0])}) để trích xuất Giá vốn lịch sử...`);
     for (const repFile of reportFiles) {
       try {
         const wb = XLSX.readFile(repFile);
