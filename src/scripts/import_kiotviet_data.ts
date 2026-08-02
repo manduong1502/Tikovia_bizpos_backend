@@ -144,7 +144,10 @@ async function main() {
     path.join(__dirname, '../..'),
     process.cwd(),
     'd:/Mẫn/demo web kioviet',
-    '/mnt/ssd500/tiko/bizpos-api/..'
+    '/mnt/ssd500/tiko/bizpos-api/..',
+    '/mnt/ssd500/tiko/bizpos-api',
+    '/mnt/ssd500/tiko',
+    '/app'
   ];
 
   let searchDir = searchDirs.find(d => fs.existsSync(d) && fs.readdirSync(d).some(f => f.endsWith('.xlsx'))) || process.cwd();
