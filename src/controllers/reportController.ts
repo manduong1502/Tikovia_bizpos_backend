@@ -81,7 +81,7 @@ export const reportController = {
 
       const transactionDetails = orders.map(o => {
         const totalQty = o.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
-        const totalCost = Number((o as any).costPrice || 0) > 0 
+        const totalCost = (o as any).costPrice !== undefined && (o as any).costPrice !== null
           ? Number((o as any).costPrice)
           : o.items.reduce((costSum, item) => {
               const costUnit = Number(item.costPrice || (item as any).product?.costPrice || 0);

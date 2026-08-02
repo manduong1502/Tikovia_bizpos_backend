@@ -458,32 +458,34 @@ async function main() {
         where: { tenantId_code: { tenantId, code } }
       });
 
+      let itemsCostSum = 0;
+      const orderItemsData = items.map(it => {
+        const sku = String(it['Mã hàng'] || '').trim().toLowerCase();
+        const prod = prodMap.get(sku) || fallbackProduct;
+        const qty = parseExcelNumber(it['Số lượng'], 1);
+        const price = parseExcelNumber(it['Đơn giá'] || it['Giá bán']);
+        const itemDiscount = parseExcelNumber(it['Giảm giá']);
+        const itemTotal = parseExcelNumber(it['Thành tiền']) || (qty * price - itemDiscount);
+
+        const repKey = `${code.toLowerCase()}_${sku}`;
+        const itemCostPrice = reportCostMap.has(repKey) ? reportCostMap.get(repKey)! : (parseExcelNumber(it['Giá vốn']) || Number(prod.costPrice));
+        itemsCostSum += qty * Number(itemCostPrice);
+
+        return {
+          productId: prod.id,
+          quantity: qty,
+          price: price,
+          costPrice: itemCostPrice,
+          discount: itemDiscount,
+          total: itemTotal
+        };
+      });
+
+      const orderCostPrice = reportOrderCostMap.has(code.toLowerCase()) 
+        ? reportOrderCostMap.get(code.toLowerCase())! 
+        : (reportOrderCostMap.size > 0 ? 0 : itemsCostSum);
+
       if (!existingOrder) {
-        let itemsCostSum = 0;
-        const orderItemsData = items.map(it => {
-          const sku = String(it['Mã hàng'] || '').trim().toLowerCase();
-          const prod = prodMap.get(sku) || fallbackProduct;
-          const qty = parseExcelNumber(it['Số lượng'], 1);
-          const price = parseExcelNumber(it['Đơn giá'] || it['Giá bán']);
-          const itemDiscount = parseExcelNumber(it['Giảm giá']);
-          const itemTotal = parseExcelNumber(it['Thành tiền']) || (qty * price - itemDiscount);
-
-          const repKey = `${code.toLowerCase()}_${sku}`;
-          const itemCostPrice = reportCostMap.has(repKey) ? reportCostMap.get(repKey)! : (parseExcelNumber(it['Giá vốn']) || Number(prod.costPrice));
-          itemsCostSum += qty * Number(itemCostPrice);
-
-          return {
-            productId: prod.id,
-            quantity: qty,
-            price: price,
-            costPrice: itemCostPrice,
-            discount: itemDiscount,
-            total: itemTotal
-          };
-        });
-
-        const orderCostPrice = reportOrderCostMap.get(code.toLowerCase()) || itemsCostSum;
-
         await prisma.order.create({
           data: {
             tenantId,
@@ -504,6 +506,11 @@ async function main() {
           }
         });
         orderCount++;
+      } else {
+        await prisma.order.update({
+          where: { id: existingOrder.id },
+          data: { costPrice: orderCostPrice }
+        });
       }
     }
     console.log(`   ✅ Đã import ${orderCount} hóa đơn bán hàng.\n`);
