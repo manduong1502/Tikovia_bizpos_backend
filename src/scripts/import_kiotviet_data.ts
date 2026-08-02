@@ -450,14 +450,19 @@ async function main() {
         const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
         for (const r of rows) {
           const orderCode = String(r['Mã giao dịch'] || r['Mã hóa đơn'] || '').trim().toLowerCase();
+          const baseCode = orderCode.split('.')[0];
           const sku = String(r['Mã hàng'] || '').trim().toLowerCase();
           const itemCost = parseExcelNumber(r['Giá vốn/SP'] || r['Đơn giá vốn'] || r['Giá vốn']);
           const orderCost = parseExcelNumber(r['Tổng giá vốn (theo giao dịch)']);
           if (orderCode && sku) {
             reportCostMap.set(`${orderCode}_${sku}`, itemCost);
+            reportCostMap.set(`${baseCode}_${sku}`, itemCost);
           }
           if (orderCode && orderCost > 0) {
             reportOrderCostMap.set(orderCode, orderCost);
+            if (!reportOrderCostMap.has(baseCode)) {
+              reportOrderCostMap.set(baseCode, orderCost);
+            }
           }
         }
       } catch (e) {}
@@ -535,9 +540,11 @@ async function main() {
         };
       });
 
-      const orderCostPrice = reportOrderCostMap.has(code.toLowerCase()) 
-        ? reportOrderCostMap.get(code.toLowerCase())! 
-        : (reportOrderCostMap.size > 0 ? 0 : itemsCostSum);
+      const cleanCode = code.toLowerCase();
+      const baseCode = cleanCode.split('.')[0];
+      const orderCostPrice = reportOrderCostMap.has(cleanCode)
+        ? reportOrderCostMap.get(cleanCode)!
+        : (reportOrderCostMap.has(baseCode) ? reportOrderCostMap.get(baseCode)! : itemsCostSum);
 
       if (!existingOrder) {
         await withRetry(() => prisma.order.create({
@@ -786,7 +793,7 @@ async function main() {
       }
     }
 
-    // Tự động bổ sung phiếu PC001808 (Chi Tiền trả NCC an thịnh food 151.229.488đ) nếu chưa có trong file Excel cũ
+    // Tự động bổ sung phiếu PC001808 (Chi Tiền trả NCC: 151.229.488đ) và TT013654 (Thu tiền khách trả: 675.000đ)
     const pc1808 = await prisma.cashbookEntry.findFirst({ where: { tenantId, code: 'PC001808' } });
     if (!pc1808) {
       await prisma.cashbookEntry.create({
@@ -801,7 +808,22 @@ async function main() {
           createdAt: new Date('2026-08-02T19:51:00+07:00')
         }
       });
-      console.log('   ➕ Tự động bổ sung phiếu PC001808 (Chi Tiền trả NCC an thịnh food -151.229.488đ)');
+    }
+
+    const tt13654 = await prisma.cashbookEntry.findFirst({ where: { tenantId, code: 'TT013654' } });
+    if (!tt13654) {
+      await prisma.cashbookEntry.create({
+        data: {
+          tenantId,
+          code: 'TT013654',
+          type: 'INCOME',
+          category: 'Thu Tiền khách trả',
+          amount: 675000,
+          partnerName: 'Khách hàng',
+          userId: defaultUser?.id || 1,
+          createdAt: new Date('2026-08-02T20:15:00+07:00')
+        }
+      });
     }
 
     console.log(`   ✅ Đã import ${cashCount} phiếu thu/chi sổ quỹ.\n`);
