@@ -785,6 +785,25 @@ async function main() {
         }
       }
     }
+
+    // Tự động bổ sung phiếu PC001808 (Chi Tiền trả NCC an thịnh food 151.229.488đ) nếu chưa có trong file Excel cũ
+    const pc1808 = await prisma.cashbookEntry.findFirst({ where: { tenantId, code: 'PC001808' } });
+    if (!pc1808) {
+      await prisma.cashbookEntry.create({
+        data: {
+          tenantId,
+          code: 'PC001808',
+          type: 'EXPENSE',
+          category: 'Chi Tiền trả NCC',
+          amount: 151229488,
+          partnerName: 'an thịnh food',
+          userId: defaultUser?.id || 1,
+          createdAt: new Date('2026-08-02T19:51:00+07:00')
+        }
+      });
+      console.log('   ➕ Tự động bổ sung phiếu PC001808 (Chi Tiền trả NCC an thịnh food -151.229.488đ)');
+    }
+
     console.log(`   ✅ Đã import ${cashCount} phiếu thu/chi sổ quỹ.\n`);
   }
 
