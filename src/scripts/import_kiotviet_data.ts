@@ -374,6 +374,28 @@ async function main() {
   let maxCashbookNum = 0;
 
   // ─── 4. HÓA ĐƠN BÁN HÀNG (Hỗ trợ đọc nhiều file theo từng tháng) ───
+  const reportCostMap = new Map<string, number>();
+  const reportFiles = findAllFiles(searchDir, /^BaoCao.*\.xlsx$/i);
+  if (reportFiles.length > 0) {
+    console.log(`📊 Đang đọc ${reportFiles.length} file Báo cáo để trích xuất Giá vốn lịch sử...`);
+    for (const repFile of reportFiles) {
+      try {
+        const wb = XLSX.readFile(repFile);
+        const sheetName = wb.SheetNames[0];
+        const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+        for (const r of rows) {
+          const orderCode = String(r['Mã giao dịch'] || r['Mã hóa đơn'] || '').trim().toLowerCase();
+          const sku = String(r['Mã hàng'] || '').trim().toLowerCase();
+          const itemCost = parseExcelNumber(r['Giá vốn/SP'] || r['Đơn giá vốn'] || r['Giá vốn']);
+          if (orderCode && sku && itemCost > 0) {
+            reportCostMap.set(`${orderCode}_${sku}`, itemCost);
+          }
+        }
+      } catch (e) {}
+    }
+    console.log(`   ✅ Đã nạp ${reportCostMap.size} bản ghi giá vốn lịch sử từ file báo cáo.\n`);
+  }
+
   const orderFiles = findAllFiles(searchDir, /^DanhSachChiTietHoaDon.*\.xlsx$/i);
   if (orderFiles.length > 0) {
     console.log(`🧾 4. Import Hóa đơn từ ${orderFiles.length} file...`);
@@ -430,10 +452,14 @@ async function main() {
           const itemDiscount = parseExcelNumber(it['Giảm giá']);
           const itemTotal = parseExcelNumber(it['Thành tiền']) || (qty * price - itemDiscount);
 
+          const repKey = `${code.toLowerCase()}_${sku}`;
+          const itemCostPrice = reportCostMap.get(repKey) || parseExcelNumber(it['Giá vốn']) || prod.costPrice;
+
           return {
             productId: prod.id,
             quantity: qty,
             price: price,
+            costPrice: itemCostPrice,
             discount: itemDiscount,
             total: itemTotal
           };

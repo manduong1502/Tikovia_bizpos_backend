@@ -288,6 +288,7 @@ model OrderItem {
   product   Product @relation(fields: [productId], references: [id])
   quantity  Float
   price     Decimal @db.Decimal(15, 2)   // Giá bán tại thời điểm
+  costPrice Decimal @default(0) @db.Decimal(15, 2) // Giá vốn lịch sử tại thời điểm bán
   discount  Decimal @default(0) @db.Decimal(15, 2)
   total     Decimal @db.Decimal(15, 2)
 
