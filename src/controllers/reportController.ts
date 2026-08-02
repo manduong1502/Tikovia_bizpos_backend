@@ -54,8 +54,7 @@ export const reportController = {
           },
           include: {
             items: true,
-            customer: true,
-            user: { select: { id: true, username: true } }
+            customer: true
           },
           orderBy: { createdAt: 'desc' }
         }),
@@ -117,7 +116,7 @@ export const reportController = {
           netRevenue: -Number(r.paid),
           customerName: r.customer?.name || 'Khách lẻ',
           customerPhone: r.customer?.phone || '',
-          createdBy: (r.user as any)?.username || 'Võ Thành Huy'
+          createdBy: 'Võ Thành Huy'
         };
       });
 
