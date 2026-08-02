@@ -680,6 +680,43 @@ async function main() {
     console.log(`   ✅ Đã import ${cashCount} phiếu thu/chi sổ quỹ.\n`);
   }
 
+  // ─── 7c. ĐỒNG BỘ TIỀN KHÁCH ĐÃ TRẢ TỪ PHIẾU THU SỔ QUỸ (TTHD...) ───
+  console.log('🔄 7c. Đồng bộ thanh toán hóa đơn từ Sổ quỹ...');
+  const tthdEntries = await prisma.cashbookEntry.findMany({
+    where: { tenantId, type: 'INCOME', code: { startsWith: 'TTHD' }, status: 'completed' }
+  });
+
+  const cashPaidMap = new Map<string, number>();
+  for (const entry of tthdEntries) {
+    const match = entry.code.match(/^TT(HD\d+)/i);
+    if (match) {
+      const baseCode = match[1].toUpperCase();
+      const amt = Number(entry.amount || 0);
+      cashPaidMap.set(baseCode, (cashPaidMap.get(baseCode) || 0) + amt);
+    }
+  }
+
+  let syncedOrdersCount = 0;
+  for (const [baseCode, totalCashPaid] of cashPaidMap.entries()) {
+    const matchedOrders = await prisma.order.findMany({
+      where: { tenantId, code: { startsWith: baseCode } }
+    });
+
+    for (const order of matchedOrders) {
+      if (Number(order.paid) === 0) {
+        const newPaid = Math.min(Number(order.total), totalCashPaid);
+        if (newPaid > 0) {
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { paid: newPaid }
+          });
+          syncedOrdersCount++;
+        }
+      }
+    }
+  }
+  console.log(`   ✅ Đã đồng bộ thanh toán cho ${syncedOrdersCount} hóa đơn từ phiếu thu Sổ Quỹ.\n`);
+
   // ─── 7b. KHỞI TẠO QUỸ ĐẦU KỲ ───
   const existingOpening = await prisma.cashbookEntry.findFirst({
     where: { tenantId, code: 'TT000000' }
