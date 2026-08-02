@@ -40,7 +40,7 @@ export const reportController = {
             status: 'COMPLETED'
           },
           include: {
-            items: true,
+            items: { include: { product: true } },
             customer: true,
             user: { select: { id: true, username: true } }
           },
@@ -81,6 +81,11 @@ export const reportController = {
 
       const transactionDetails = orders.map(o => {
         const totalQty = o.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
+        const totalCost = o.items.reduce((costSum, item) => {
+          const cost = Number((item as any).product?.costPrice || 0);
+          return costSum + (cost > 0 ? cost : Number(item.price) * 0.87) * Number(item.quantity);
+        }, 0);
+
         return {
           id: o.id,
           code: o.code || `HD00000${o.id}`,
@@ -88,6 +93,7 @@ export const reportController = {
           quantity: totalQty,
           revenue: Number(o.total),
           paid: Number(o.paid),
+          costPrice: totalCost,
           otherFee: 0,
           vat: 0,
           rounding: 0,
