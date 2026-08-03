@@ -101,7 +101,9 @@ export const cashbookController = {
       const prefix = typeEnum === 'INCOME' ? 'TTM' : 'TCM';
 
       const entry = await prisma.$transaction(async (tx) => {
-        if (customerId) {
+        const isAccountingBool = isAccounting === undefined ? true : Boolean(isAccounting);
+
+        if (customerId && partnerType === 'customer' && isAccountingBool) {
           const cust = await tx.customer.findFirst({ where: { id: Number(customerId), tenantId } });
           if (!cust) throw new Error('Không tìm thấy khách hàng của gian hàng này');
 
@@ -114,7 +116,7 @@ export const cashbookController = {
           });
         }
 
-        if (supplierId) {
+        if (supplierId && partnerType === 'supplier' && isAccountingBool) {
           const sup = await tx.supplier.findFirst({ where: { id: Number(supplierId), tenantId } });
           if (!sup) throw new Error('Không tìm thấy nhà cung cấp của gian hàng này');
 
