@@ -158,13 +158,13 @@ export const dashboardController = {
         }),
         // Doanh thu tháng trước
         prisma.order.aggregate({
-          where: { tenantId, createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: { notIn: ['CANCELLED', 'cancelled'] } },
+          where: { tenantId, createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: { not: 'CANCELLED' } },
           _sum: { total: true },
         }),
         // Top hàng bán chạy
         prisma.orderItem.groupBy({
           by: ['productId'],
-          where: { order: { tenantId, createdAt: { gte: prodRange.start, lte: prodRange.end }, status: { notIn: ['CANCELLED', 'cancelled'] } } },
+          where: { order: { tenantId, createdAt: { gte: prodRange.start, lte: prodRange.end }, status: { not: 'CANCELLED' } } },
           _sum: { quantity: true, total: true },
           orderBy: { _sum: { quantity: 'desc' } },
           take: 5,
@@ -172,7 +172,7 @@ export const dashboardController = {
         // Top khách chi tiêu
         prisma.order.groupBy({
           by: ['customerId'],
-          where: { tenantId, createdAt: { gte: custRange.start, lte: custRange.end }, status: { notIn: ['CANCELLED', 'cancelled'] }, customerId: { not: null } },
+          where: { tenantId, createdAt: { gte: custRange.start, lte: custRange.end }, status: { not: 'CANCELLED' }, customerId: { not: null } },
           _sum: { total: true },
           _count: { id: true },
           orderBy: { _sum: { total: 'desc' } },
@@ -180,12 +180,12 @@ export const dashboardController = {
         }),
         // Doanh thu theo ngày trong tháng này
         prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: { notIn: ['CANCELLED', 'cancelled'] } },
+          where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: { not: 'CANCELLED' } },
           select: { createdAt: true, total: true }
         }),
         // Đơn hàng trong khoảng thời gian được chọn (để tính periodStats)
         prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: rangeStart, lte: rangeEnd }, status: { notIn: ['CANCELLED', 'cancelled'] } },
+          where: { tenantId, createdAt: { gte: rangeStart, lte: rangeEnd }, status: { not: 'CANCELLED' } },
           select: {
             id: true,
             total: true,
@@ -232,8 +232,8 @@ export const dashboardController = {
       // Tính toán periodStats (Tổng tiền hàng, tổng hóa đơn, lợi nhuận, đơn trả hàng)
       const periodOrderCount = periodOrders.length;
       const periodRevenue = periodOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
-      const periodCost = periodOrders.reduce((sum, o) => {
-        const itemCost = (o.items || []).reduce((isum, it) => {
+      const periodCost = periodOrders.reduce((sum: number, o: any) => {
+        const itemCost = (o.items || []).reduce((isum: number, it: any) => {
           const costP = Number(it.product?.costPrice || 0);
           return isum + (Number(it.quantity || 0) * costP);
         }, 0);
@@ -265,8 +265,8 @@ export const dashboardController = {
         const cust = customersData.find(cd => cd.id === c.customerId);
         return {
           name: cust?.name || 'Khách lẻ',
-          total_spent: Number(c._sum.total || 0),
-          order_count: Number(c._count.id || 0)
+          total_spent: Number(c._sum?.total || 0),
+          order_count: Number((c._count as any)?.id || 0)
         };
       });
 
@@ -298,7 +298,7 @@ export const dashboardController = {
         },
         recentOrders,
         monthly_revenue: monthlyRevenueSum,
-        prev_month_revenue: Number(prevMonthRevenueAggr._sum.total || 0),
+        prev_month_revenue: Number(prevMonthRevenueAggr._sum?.total || 0),
         top_products,
         top_customers,
         daily_revenues
