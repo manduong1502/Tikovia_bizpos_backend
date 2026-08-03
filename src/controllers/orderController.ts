@@ -201,8 +201,13 @@ export const orderController = {
         prisma.order.findMany({
           where,
           include: {
-            customer: { select: { id: true, name: true, phone: true, code: true } },
+            customer: { select: { id: true, name: true, phone: true, code: true, totalDebt: true } },
             returns: { select: { code: true } },
+            items: {
+              include: {
+                product: { select: { id: true, sku: true, name: true, unit: true } }
+              }
+            }
           },
           skip: (page - 1) * limit,
           take: limit,
