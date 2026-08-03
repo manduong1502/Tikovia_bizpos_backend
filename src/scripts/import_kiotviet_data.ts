@@ -829,38 +829,7 @@ async function main() {
     console.log(`   ✅ Đã import ${cashCount} phiếu thu/chi sổ quỹ.\n`);
   }
 
-  // ─── 8. SỬA GIỜ CHO CÁC ĐƠN TẠO NGÀY 03/08/2026 BỊ DÍNH 00:00:00 ───
-  const todayMidnightGte = new Date('2026-08-03T00:00:00.000Z');
-  const todayMidnightLte = new Date('2026-08-03T00:00:01.000Z');
-  const zeroTimeOrders = await prisma.order.findMany({
-    where: { 
-      tenantId, 
-      createdAt: { gte: todayMidnightGte, lte: todayMidnightLte } 
-    },
-    orderBy: { id: 'asc' }
-  });
 
-  if (zeroTimeOrders.length > 0) {
-    console.log(`⏱️ 8. Sửa giờ cho ${zeroTimeOrders.length} đơn tạo sáng nay bị dính 00:00:00...`);
-    let startHour = 6;
-    let startMin = 30;
-    for (let i = 0; i < zeroTimeOrders.length; i++) {
-      const o = zeroTimeOrders[i];
-      const hStr = String(startHour).padStart(2, '0');
-      const mStr = String(startMin).padStart(2, '0');
-      const newTime = new Date(`2026-08-03T${hStr}:${mStr}:00.000Z`);
-      await prisma.order.update({
-        where: { id: o.id },
-        data: { createdAt: newTime }
-      });
-      startMin += 10;
-      if (startMin >= 60) {
-        startHour += 1;
-        startMin -= 60;
-      }
-    }
-    console.log(`   ✅ Đã cập nhật xong giờ tự động cho ${zeroTimeOrders.length} đơn sáng nay.\n`);
-  }
 
   // ─── 7c. ĐỒNG BỘ TIỀN KHÁCH ĐÃ TRẢ TỪ PHIẾU THU SỔ QUỸ (TTHD...) ───
   console.log('🔄 7c. Đồng bộ thanh toán hóa đơn từ Sổ quỹ...');
