@@ -63,7 +63,7 @@ async function generateOrderCode(tenantId: number, txClient?: any): Promise<stri
 
 function parseExcelDate(val: any): Date | null {
   if (!val) return null;
-  if (val instanceof Date) return isNaN(val.getTime()) ? null : new Date(val.getTime() - (7 * 3600 * 1000));
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
   
   if (typeof val === 'number') {
     const ms = Math.round((val - 25569) * 86400 * 1000) - (7 * 3600 * 1000);
@@ -74,9 +74,15 @@ function parseExcelDate(val: any): Date | null {
   const str = String(val).trim();
   if (!str) return null;
 
-  const parts = str.split(' ');
+  if (str.includes('T') || str.includes('Z')) {
+    const isoDate = new Date(str);
+    if (!isNaN(isoDate.getTime())) return isoDate;
+  }
+
+  const normalizedStr = str.replace('T', ' ');
+  const parts = normalizedStr.split(' ');
   const datePart = parts[0];
-  const timePart = parts[1] || '00:00:00';
+  const timePart = parts[1] || '';
 
   if (datePart.includes('/')) {
     const dParts = datePart.split('/');
@@ -84,7 +90,7 @@ function parseExcelDate(val: any): Date | null {
       const day = parseInt(dParts[0], 10);
       const month = parseInt(dParts[1], 10) - 1;
       const year = parseInt(dParts[2], 10);
-      const tParts = timePart.split(':');
+      const tParts = timePart ? timePart.split(':') : [];
       const hour = parseInt(tParts[0] || '0', 10);
       const minute = parseInt(tParts[1] || '0', 10);
       const second = parseInt(tParts[2] || '0', 10);
@@ -103,7 +109,7 @@ function parseExcelDate(val: any): Date | null {
       const year = dParts[0].length === 4 ? parseInt(dParts[0], 10) : parseInt(dParts[2], 10);
       const month = parseInt(dParts[1], 10) - 1;
       const day = dParts[0].length === 4 ? parseInt(dParts[2], 10) : parseInt(dParts[0], 10);
-      const tParts = timePart.split(':');
+      const tParts = timePart ? timePart.split(':') : [];
       const hour = parseInt(tParts[0] || '0', 10);
       const minute = parseInt(tParts[1] || '0', 10);
       const second = parseInt(tParts[2] || '0', 10);
@@ -285,7 +291,7 @@ export const orderController = {
         // Create order
         const code = await generateOrderCode(tenantId, tx);
         const debtChange = total - (body.paid ?? total);
-        const orderDate = parseExcelDate(body.createdAt) || new Date();
+        const orderDate = (body.createdAt && String(body.createdAt).trim() !== '') ? (parseExcelDate(body.createdAt) || new Date()) : new Date();
         const newOrder = await tx.order.create({
           data: {
             code,
