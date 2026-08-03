@@ -158,13 +158,13 @@ export const dashboardController = {
         }),
         // Doanh thu tháng trước
         prisma.order.aggregate({
-          where: { tenantId, createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: { notIn: ['CANCELLED', 'cancelled'] } },
           _sum: { total: true },
         }),
         // Top hàng bán chạy
         prisma.orderItem.groupBy({
           by: ['productId'],
-          where: { order: { tenantId, createdAt: { gte: prodRange.start, lte: prodRange.end }, status: 'COMPLETED' } },
+          where: { order: { tenantId, createdAt: { gte: prodRange.start, lte: prodRange.end }, status: { notIn: ['CANCELLED', 'cancelled'] } } },
           _sum: { quantity: true, total: true },
           orderBy: { _sum: { quantity: 'desc' } },
           take: 5,
@@ -172,7 +172,7 @@ export const dashboardController = {
         // Top khách chi tiêu
         prisma.order.groupBy({
           by: ['customerId'],
-          where: { tenantId, createdAt: { gte: custRange.start, lte: custRange.end }, status: 'COMPLETED', customerId: { not: null } },
+          where: { tenantId, createdAt: { gte: custRange.start, lte: custRange.end }, status: { notIn: ['CANCELLED', 'cancelled'] }, customerId: { not: null } },
           _sum: { total: true },
           _count: { id: true },
           orderBy: { _sum: { total: 'desc' } },
@@ -180,12 +180,12 @@ export const dashboardController = {
         }),
         // Doanh thu theo ngày trong tháng này
         prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: { notIn: ['CANCELLED', 'cancelled'] } },
           select: { createdAt: true, total: true }
         }),
         // Đơn hàng trong khoảng thời gian được chọn (để tính periodStats)
         prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: rangeStart, lte: rangeEnd }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: rangeStart, lte: rangeEnd }, status: { notIn: ['CANCELLED', 'cancelled'] } },
           select: {
             id: true,
             total: true,
