@@ -25,84 +25,75 @@ export const dashboardController = {
       const dateTo = req.query.dateTo as string;
 
       const getRange = (type: string) => {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        const end = new Date(d);
-        end.setHours(23, 59, 59, 999);
+        const now = new Date();
+        const vnTime = new Date(now.getTime() + (7 * 3600 * 1000));
+        const vnYear = vnTime.getUTCFullYear();
+        const vnMonth = vnTime.getUTCMonth();
+        const vnDate = vnTime.getUTCDate();
+
+        const startOfDay = new Date(Date.UTC(vnYear, vnMonth, vnDate, 0, 0, 0, 0) - (7 * 3600 * 1000));
+        const endOfDay = new Date(Date.UTC(vnYear, vnMonth, vnDate, 23, 59, 59, 999) - (7 * 3600 * 1000));
 
         if (type === 'Hôm nay') {
-          return { start: d, end };
+          return { start: startOfDay, end: endOfDay };
         }
         if (type === 'Hôm qua') {
-          const start = new Date(d);
-          start.setDate(start.getDate() - 1);
-          const e = new Date(start);
-          e.setHours(23, 59, 59, 999);
-          return { start, end: e };
+          const start = new Date(startOfDay.getTime() - (24 * 3600 * 1000));
+          const end = new Date(endOfDay.getTime() - (24 * 3600 * 1000));
+          return { start, end };
         }
         if (type === '7 ngày qua') {
-          const start = new Date(d);
-          start.setDate(start.getDate() - 6);
-          return { start, end };
+          const start = new Date(startOfDay.getTime() - (6 * 24 * 3600 * 1000));
+          return { start, end: endOfDay };
         }
         if (type === '30 ngày qua') {
-          const start = new Date(d);
-          start.setDate(start.getDate() - 29);
-          return { start, end };
+          const start = new Date(startOfDay.getTime() - (29 * 24 * 3600 * 1000));
+          return { start, end: endOfDay };
         }
         if (type === 'Tuần này') {
-          const day = d.getDay();
-          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-          const start = new Date(d.setDate(diff));
-          start.setHours(0, 0, 0, 0);
-          return { start, end };
+          const day = vnTime.getUTCDay();
+          const diff = vnDate - day + (day === 0 ? -6 : 1);
+          const start = new Date(Date.UTC(vnYear, vnMonth, diff, 0, 0, 0, 0) - (7 * 3600 * 1000));
+          return { start, end: endOfDay };
         }
         if (type === 'Tuần trước') {
-          const day = d.getDay();
-          const diff = d.getDate() - day + (day === 0 ? -6 : 1) - 7;
-          const start = new Date(d.setDate(diff));
-          start.setHours(0, 0, 0, 0);
-          const e = new Date(start);
-          e.setDate(e.getDate() + 6);
-          e.setHours(23, 59, 59, 999);
-          return { start, end: e };
+          const day = vnTime.getUTCDay();
+          const diff = vnDate - day + (day === 0 ? -6 : 1) - 7;
+          const start = new Date(Date.UTC(vnYear, vnMonth, diff, 0, 0, 0, 0) - (7 * 3600 * 1000));
+          const end = new Date(start.getTime() + (7 * 24 * 3600 * 1000) - 1);
+          return { start, end };
         }
         if (type === 'Tháng trước') {
-          const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-          const e = new Date(d.getFullYear(), d.getMonth(), 0, 23, 59, 59, 999);
-          return { start, end: e };
+          const start = new Date(Date.UTC(vnYear, vnMonth - 1, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
+          const end = new Date(Date.UTC(vnYear, vnMonth, 0, 23, 59, 59, 999) - (7 * 3600 * 1000));
+          return { start, end };
         }
         if (type === 'Quý này') {
-          const quarter = Math.floor(d.getMonth() / 3);
-          const start = new Date(d.getFullYear(), quarter * 3, 1);
-          const e = new Date(d.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59, 999);
-          return { start, end: e };
+          const quarter = Math.floor(vnMonth / 3);
+          const start = new Date(Date.UTC(vnYear, quarter * 3, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
+          const end = new Date(Date.UTC(vnYear, quarter * 3 + 3, 0, 23, 59, 59, 999) - (7 * 3600 * 1000));
+          return { start, end };
         }
         if (type === 'Quý trước') {
-          const quarter = Math.floor(d.getMonth() / 3) - 1;
-          const start = new Date(d.getFullYear(), quarter * 3, 1);
-          const e = new Date(d.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59, 999);
-          return { start, end: e };
+          const quarter = Math.floor(vnMonth / 3) - 1;
+          const start = new Date(Date.UTC(vnYear, quarter * 3, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
+          const end = new Date(Date.UTC(vnYear, quarter * 3 + 3, 0, 23, 59, 59, 999) - (7 * 3600 * 1000));
+          return { start, end };
         }
         if (type === 'Năm nay') {
-          const start = new Date(d.getFullYear(), 0, 1);
-          const e = new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
-          return { start, end: e };
-        }
-        if (type === 'Năm trước') {
-          const start = new Date(d.getFullYear() - 1, 0, 1);
-          const e = new Date(d.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
-          return { start, end: e };
+          const start = new Date(Date.UTC(vnYear, 0, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
+          const end = new Date(Date.UTC(vnYear, 11, 31, 23, 59, 59, 999) - (7 * 3600 * 1000));
+          return { start, end };
         }
         if (type === 'Toàn thời gian') {
           const start = new Date(2000, 0, 1);
-          const e = new Date(2099, 11, 31, 23, 59, 59, 999);
-          return { start, end: e };
+          const end = new Date(2099, 11, 31, 23, 59, 59, 999);
+          return { start, end };
         }
         // Default: Tháng này
-        const start = new Date(d.getFullYear(), d.getMonth(), 1);
-        const e = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-        return { start, end: e };
+        const start = new Date(Date.UTC(vnYear, vnMonth, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
+        const end = new Date(Date.UTC(vnYear, vnMonth + 1, 0, 23, 59, 59, 999) - (7 * 3600 * 1000));
+        return { start, end };
       };
 
       const prodRange = getRange(timeProd);
