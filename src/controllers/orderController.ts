@@ -183,8 +183,14 @@ export const orderController = {
       if (status) where.status = status;
       if (from || to) {
         where.createdAt = {};
-        if (from) where.createdAt.gte = new Date(from);
-        if (to) where.createdAt.lte = new Date(to + 'T23:59:59.999Z');
+        if (from) {
+          const dFrom = new Date(from);
+          if (!isNaN(dFrom.getTime())) where.createdAt.gte = dFrom;
+        }
+        if (to) {
+          const dTo = to.includes('T') ? new Date(to) : new Date(to + 'T23:59:59.999Z');
+          if (!isNaN(dTo.getTime())) where.createdAt.lte = dTo;
+        }
       }
       if (search && search.trim()) {
         const q = search.trim();
