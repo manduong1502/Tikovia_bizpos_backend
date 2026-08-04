@@ -178,9 +178,7 @@ export const reportController = {
         endDate = new Date(req.query.toDate as string);
         endDate.setHours(23, 59, 59, 999);
       } else {
-        startDate = new Date();
-        startDate.setDate(1);
-        startDate.setHours(0, 0, 0, 0);
+        startDate = new Date(0);
         endDate = new Date();
         endDate.setHours(23, 59, 59, 999);
       }
