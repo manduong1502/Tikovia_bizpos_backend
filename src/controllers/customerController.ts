@@ -117,18 +117,26 @@ export const customerController = {
           where,
           skip: (page - 1) * limit,
           take: limit,
-          include: {
-            orders: {
-              select: {
-                code: true,
-                createdAt: true,
-                total: true,
-                paid: true,
-                discount: true,
-                status: true
-              },
-              orderBy: { createdAt: 'desc' }
-            }
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            phone: true,
+            email: true,
+            address: true,
+            note: true,
+            customerType: true,
+            branch: true,
+            totalSpent: true,
+            totalDebt: true,
+            totalOrders: true,
+            isActive: true,
+            createdBy: true,
+            lastTransaction: true,
+            latitude: true,
+            longitude: true,
+            createdAt: true,
+            updatedAt: true
           },
           orderBy: [
             { lastTransaction: { sort: 'desc', nulls: 'last' } },

@@ -82,6 +82,9 @@ export const returnController = {
       const search = req.query.search as string;
 
       const where: any = { tenantId };
+      const customerIdParam = req.query.customerId ? parseInt(req.query.customerId as string, 10) : undefined;
+      if (customerIdParam && !isNaN(customerIdParam)) where.customerId = customerIdParam;
+
       if (search && search.trim()) {
         const q = search.trim();
         where.OR = [
