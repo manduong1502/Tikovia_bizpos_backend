@@ -37,7 +37,7 @@ export const reportController = {
           where: { 
             tenantId,
             createdAt: { gte: startDate, lte: endDate },
-            status: { in: ['COMPLETED', 'PAID'] }
+            status: { not: 'CANCELLED' }
           },
           include: {
             items: { include: { product: true } },
@@ -53,7 +53,7 @@ export const reportController = {
             status: 'COMPLETED' 
           },
           include: {
-            items: true,
+            items: { include: { product: true } },
             customer: true
           },
           orderBy: { createdAt: 'desc' }
@@ -79,13 +79,13 @@ export const reportController = {
         MIXED: 'Kết hợp'
       };
 
-      const transactionDetails = orders.map(o => {
-        const totalQty = o.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
-        const totalCost = (o as any).costPrice !== undefined && (o as any).costPrice !== null
-          ? Number((o as any).costPrice)
-          : o.items.reduce((costSum, item) => {
-              const costUnit = Number(item.costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
-              return costSum + costUnit * Number(item.quantity);
+      const transactionDetails = orders.map((o: any) => {
+        const totalQty = (o.items || []).reduce((qtySum: number, item: any) => qtySum + Number(item.quantity || 0), 0);
+        const totalCost = o.costPrice !== undefined && o.costPrice !== null
+          ? Number(o.costPrice)
+          : (o.items || []).reduce((costSum: number, item: any) => {
+              const costUnit = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
+              return costSum + costUnit * Number(item.quantity || 0);
             }, 0);
 
         return {
@@ -93,14 +93,14 @@ export const reportController = {
           code: o.code || `HD00000${o.id}`,
           time: o.createdAt,
           quantity: totalQty,
-          revenue: Number(o.total),
-          paid: Number(o.paid),
+          revenue: Number(o.total || 0),
+          paid: Number(o.paid || 0),
           costPrice: totalCost,
           otherFee: 0,
           vat: 0,
           rounding: 0,
           returnFee: 0,
-          netRevenue: Number(o.paid),
+          netRevenue: Number(o.paid || 0),
           customerName: o.customer?.name || 'Khách lẻ',
           customerPhone: o.customer?.phone || '',
           createdBy: o.user?.username || 'Võ Thành Huy',
@@ -108,25 +108,25 @@ export const reportController = {
         };
       });
 
-      const returnDetails = returns.map(r => {
-        const totalQty = r.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
-        const totalCost = r.items.reduce((costSum, item) => {
-          const costUnit = Number((item as any).product?.costPrice || (item as any).product?.cost_price || 0);
-          return costSum + costUnit * Number(item.quantity);
+      const returnDetails = returns.map((r: any) => {
+        const totalQty = (r.items || []).reduce((qtySum: number, item: any) => qtySum + Number(item.quantity || 0), 0);
+        const totalCost = (r.items || []).reduce((costSum: number, item: any) => {
+          const costUnit = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
+          return costSum + costUnit * Number(item.quantity || 0);
         }, 0);
         return {
           id: r.id,
           code: r.code || `TH00000${r.id}`,
           time: r.createdAt,
           quantity: totalQty,
-          revenue: -Number(r.total),
-          paid: -Number(r.paid),
+          revenue: -Number(r.total || 0),
+          paid: -Number(r.paid || 0),
           costPrice: totalCost,
           otherFee: 0,
           vat: 0,
           rounding: 0,
           returnFee: 0,
-          netRevenue: -Number(r.paid),
+          netRevenue: -Number(r.paid || 0),
           customerName: r.customer?.name || 'Khách lẻ',
           customerPhone: r.customer?.phone || '',
           createdBy: 'Võ Thành Huy'
@@ -190,7 +190,7 @@ export const reportController = {
           where: {
             tenantId,
             createdAt: { gte: startDate, lte: endDate },
-            status: { in: ['COMPLETED', 'PAID'] }
+            status: { not: 'CANCELLED' }
           },
           include: {
             items: { include: { product: true } }
@@ -220,12 +220,12 @@ export const reportController = {
       let orderDiscounts = 0;
       let soldCostPrice = 0;
 
-      orders.forEach(o => {
+      orders.forEach((o: any) => {
         let orderItemsSum = 0;
-        o.items.forEach(item => {
+        (o.items || []).forEach((item: any) => {
           const itemVal = Number(item.price || 0) * Number(item.quantity || 0);
           orderItemsSum += itemVal;
-          const cost = Number(item.costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
+          const cost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
           soldCostPrice += cost * Number(item.quantity || 0);
         });
         grossRevenue += orderItemsSum > 0 ? orderItemsSum : Number(o.total || 0);
@@ -236,10 +236,10 @@ export const reportController = {
       let returnTotalVal = 0;
       let returnCostPrice = 0;
 
-      returns.forEach(r => {
+      returns.forEach((r: any) => {
         returnTotalVal += Number(r.total || 0);
-        r.items.forEach(item => {
-          const cost = Number((item as any).costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
+        (r.items || []).forEach((item: any) => {
+          const cost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
           returnCostPrice += cost * Number(item.quantity || 0);
         });
       });
@@ -250,18 +250,18 @@ export const reportController = {
       const grossProfit = netRevenue - cogs;
 
       const operatingExpenses = cashbook
-        .filter(c => c.type === 'EXPENSE' && c.category !== 'Thanh toán nợ nhà cung cấp' && c.category !== 'Trả nợ NCC')
-        .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+        .filter((c: any) => c.type === 'EXPENSE' && c.category !== 'Thanh toán nợ nhà cung cấp' && c.category !== 'Trả nợ NCC')
+        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
 
       const operatingProfit = grossProfit - operatingExpenses;
 
       const otherIncome = cashbook
-        .filter(c => c.type === 'INCOME' && c.category === 'Thu nhập khác')
-        .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+        .filter((c: any) => c.type === 'INCOME' && c.category === 'Thu nhập khác')
+        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
 
       const otherExpenses = cashbook
-        .filter(c => c.type === 'EXPENSE' && c.category === 'Chi phí khác')
-        .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+        .filter((c: any) => c.type === 'EXPENSE' && c.category === 'Chi phí khác')
+        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
 
       const netProfit = operatingProfit + otherIncome - otherExpenses;
 
@@ -297,7 +297,7 @@ export const reportController = {
 
       const [orders, returns] = await Promise.all([
         prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: startDate }, status: { in: ['COMPLETED', 'PAID'] } },
+          where: { tenantId, createdAt: { gte: startDate }, status: { not: 'CANCELLED' } },
           include: { items: { include: { product: true } } }
         }),
         prisma.return.findMany({
@@ -308,14 +308,14 @@ export const reportController = {
 
       const salesByDate: Record<string, { revenue: number; cogs: number; profit: number; count: number }> = {};
       
-      orders.forEach(order => {
+      orders.forEach((order: any) => {
         const dateStr = order.createdAt.toISOString().split('T')[0];
         if (!salesByDate[dateStr]) salesByDate[dateStr] = { revenue: 0, cogs: 0, profit: 0, count: 0 };
         
         const rev = Number(order.total || 0);
         let cogs = 0;
-        order.items.forEach(item => {
-          const cost = Number(item.costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
+        (order.items || []).forEach((item: any) => {
+          const cost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
           cogs += cost * Number(item.quantity || 0);
         });
 
@@ -325,14 +325,14 @@ export const reportController = {
         salesByDate[dateStr].count += 1;
       });
 
-      returns.forEach(ret => {
+      returns.forEach((ret: any) => {
         const dateStr = ret.createdAt.toISOString().split('T')[0];
         if (!salesByDate[dateStr]) salesByDate[dateStr] = { revenue: 0, cogs: 0, profit: 0, count: 0 };
 
         const retVal = Number(ret.total || 0);
         let retCogs = 0;
-        ret.items.forEach(item => {
-          const cost = Number((item as any).costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
+        (ret.items || []).forEach((item: any) => {
+          const cost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
           retCogs += cost * Number(item.quantity || 0);
         });
 
@@ -390,7 +390,7 @@ export const reportController = {
         where: { 
           tenantId,
           createdAt: { gte: startDate, lte: endDate },
-          status: { in: ['COMPLETED', 'PAID'] }
+          status: { not: 'CANCELLED' }
         },
         include: {
           items: {
@@ -412,8 +412,8 @@ export const reportController = {
 
       const productMap: Record<number, any> = {};
 
-      orders.forEach(order => {
-        order.items.forEach(item => {
+      orders.forEach((order: any) => {
+        (order.items || []).forEach((item: any) => {
           if (!productMap[item.productId]) {
             productMap[item.productId] = {
               id: item.productId,
@@ -431,7 +431,7 @@ export const reportController = {
             };
           }
           const itemVal = Number(item.total || (Number(item.price || 0) * Number(item.quantity || 0)));
-          const itemCost = Number(item.costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0) * Number(item.quantity || 0);
+          const itemCost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0) * Number(item.quantity || 0);
 
           productMap[item.productId].soldQty += Number(item.quantity || 0);
           productMap[item.productId].revenue += itemVal;
@@ -441,11 +441,11 @@ export const reportController = {
         });
       });
 
-      returns.forEach(ret => {
-        ret.items.forEach(item => {
+      returns.forEach((ret: any) => {
+        (ret.items || []).forEach((item: any) => {
           if (productMap[item.productId]) {
             const itemVal = Number(item.total || (Number(item.price || 0) * Number(item.quantity || 0)));
-            const itemCost = Number((item as any).costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0) * Number(item.quantity || 0);
+            const itemCost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0) * Number(item.quantity || 0);
 
             productMap[item.productId].returnQty += Number(item.quantity || 0);
             productMap[item.productId].returnVal += itemVal;
@@ -481,7 +481,7 @@ export const reportController = {
         where: {
           tenantId,
           createdAt: { gte: startDate, lte: endDate },
-          status: { in: ['COMPLETED', 'PAID'] },
+          status: { not: 'CANCELLED' },
           customerId: { not: null }
         },
         include: {
@@ -503,7 +503,7 @@ export const reportController = {
 
       const customerMap: Record<number, any> = {};
 
-      orders.forEach(order => {
+      orders.forEach((order: any) => {
         const cus = order.customer;
         if (!cus) return;
         if (!customerMap[cus.id]) {
@@ -521,7 +521,7 @@ export const reportController = {
         customerMap[cus.id].netRevenue += Number(order.total);
       });
 
-      returns.forEach(ret => {
+      returns.forEach((ret: any) => {
         const cus = ret.customer;
         if (!cus) return;
         if (!customerMap[cus.id]) {
