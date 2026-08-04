@@ -103,6 +103,7 @@ router.get('/reports/end-of-day', authenticate, reportController.endOfDay);
 router.get('/reports/sales', authenticate, reportController.sales);
 router.get('/reports/products', authenticate, reportController.products);
 router.get('/reports/customers', authenticate, reportController.getCustomers);
+router.get('/reports/financial', authenticate, reportController.financial);
 
 // ─── Cashbook ───
 router.get('/cashbook', authenticate, cashbookController.getAll);

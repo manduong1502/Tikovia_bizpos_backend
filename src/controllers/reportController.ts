@@ -37,7 +37,7 @@ export const reportController = {
           where: { 
             tenantId,
             createdAt: { gte: startDate, lte: endDate },
-            status: 'COMPLETED'
+            status: { in: ['COMPLETED', 'PAID'] }
           },
           include: {
             items: { include: { product: true } },
@@ -84,7 +84,7 @@ export const reportController = {
         const totalCost = (o as any).costPrice !== undefined && (o as any).costPrice !== null
           ? Number((o as any).costPrice)
           : o.items.reduce((costSum, item) => {
-              const costUnit = Number(item.costPrice || (item as any).product?.costPrice || 0);
+              const costUnit = Number(item.costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
               return costSum + costUnit * Number(item.quantity);
             }, 0);
 
@@ -111,7 +111,7 @@ export const reportController = {
       const returnDetails = returns.map(r => {
         const totalQty = r.items.reduce((qtySum, item) => qtySum + Number(item.quantity), 0);
         const totalCost = r.items.reduce((costSum, item) => {
-          const costUnit = Number((item as any).product?.costPrice || 0);
+          const costUnit = Number((item as any).product?.costPrice || (item as any).product?.cost_price || 0);
           return costSum + costUnit * Number(item.quantity);
         }, 0);
         return {
@@ -152,33 +152,202 @@ export const reportController = {
     }
   },
 
+  // GET /api/reports/financial (Báo cáo Kết quả hoạt động kinh doanh chuẩn KiotViet)
+  financial: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = (req as any).tenant!.id;
+      let startDate = new Date();
+      let endDate = new Date();
+
+      if (req.query.date) {
+        const dateStr = req.query.date as string;
+        let parsedDate: Date;
+        if (dateStr.includes('/')) {
+          const [d, m, y] = dateStr.split('/');
+          parsedDate = new Date(Number(y), Number(m) - 1, Number(d));
+        } else {
+          parsedDate = new Date(dateStr);
+        }
+        startDate = new Date(parsedDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(parsedDate);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (req.query.fromDate && req.query.toDate) {
+        startDate = new Date(req.query.fromDate as string);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(req.query.toDate as string);
+        endDate.setHours(23, 59, 59, 999);
+      } else {
+        startDate = new Date();
+        startDate.setDate(1);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date();
+        endDate.setHours(23, 59, 59, 999);
+      }
+
+      const [orders, returns, cashbook] = await Promise.all([
+        prisma.order.findMany({
+          where: {
+            tenantId,
+            createdAt: { gte: startDate, lte: endDate },
+            status: { in: ['COMPLETED', 'PAID'] }
+          },
+          include: {
+            items: { include: { product: true } }
+          }
+        }),
+        prisma.return.findMany({
+          where: {
+            tenantId,
+            createdAt: { gte: startDate, lte: endDate },
+            status: 'COMPLETED'
+          },
+          include: {
+            items: { include: { product: true } }
+          }
+        }),
+        prisma.cashbookEntry.findMany({
+          where: {
+            tenantId,
+            createdAt: { gte: startDate, lte: endDate },
+            isAccounting: true,
+            status: { not: 'cancelled' }
+          }
+        })
+      ]);
+
+      let grossRevenue = 0;
+      let orderDiscounts = 0;
+      let soldCostPrice = 0;
+
+      orders.forEach(o => {
+        let orderItemsSum = 0;
+        o.items.forEach(item => {
+          const itemVal = Number(item.price || 0) * Number(item.quantity || 0);
+          orderItemsSum += itemVal;
+          const cost = Number(item.costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
+          soldCostPrice += cost * Number(item.quantity || 0);
+        });
+        grossRevenue += orderItemsSum > 0 ? orderItemsSum : Number(o.total || 0);
+        const discountVal = Number(o.discount || 0);
+        orderDiscounts += discountVal;
+      });
+
+      let returnTotalVal = 0;
+      let returnCostPrice = 0;
+
+      returns.forEach(r => {
+        returnTotalVal += Number(r.total || 0);
+        r.items.forEach(item => {
+          const cost = Number((item as any).costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
+          returnCostPrice += cost * Number(item.quantity || 0);
+        });
+      });
+
+      const totalDeductions = returnTotalVal + orderDiscounts;
+      const netRevenue = grossRevenue - totalDeductions;
+      const cogs = soldCostPrice - returnCostPrice;
+      const grossProfit = netRevenue - cogs;
+
+      const operatingExpenses = cashbook
+        .filter(c => c.type === 'EXPENSE' && c.category !== 'Thanh toán nợ nhà cung cấp' && c.category !== 'Trả nợ NCC')
+        .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
+      const operatingProfit = grossProfit - operatingExpenses;
+
+      const otherIncome = cashbook
+        .filter(c => c.type === 'INCOME' && c.category === 'Thu nhập khác')
+        .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
+      const otherExpenses = cashbook
+        .filter(c => c.type === 'EXPENSE' && c.category === 'Chi phí khác')
+        .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
+      const netProfit = operatingProfit + otherIncome - otherExpenses;
+
+      res.json({
+        dateRange: { from: startDate, to: endDate },
+        grossRevenue,
+        totalDeductions,
+        orderDiscounts,
+        returnTotalVal,
+        netRevenue,
+        cogs,
+        grossProfit,
+        operatingExpenses,
+        operatingProfit,
+        otherIncome,
+        otherExpenses,
+        netProfit,
+        profitMargin: netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   // GET /api/reports/sales
   sales: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
-      // Mặc định lấy 30 ngày gần nhất
       const days = parseInt(req.query.days as string) || 30;
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
 
-      const orders = await prisma.order.findMany({
-        where: { tenantId, createdAt: { gte: startDate }, status: 'COMPLETED' },
-        select: { createdAt: true, total: true }
-      });
+      const [orders, returns] = await Promise.all([
+        prisma.order.findMany({
+          where: { tenantId, createdAt: { gte: startDate }, status: { in: ['COMPLETED', 'PAID'] } },
+          include: { items: { include: { product: true } } }
+        }),
+        prisma.return.findMany({
+          where: { tenantId, createdAt: { gte: startDate }, status: 'COMPLETED' },
+          include: { items: { include: { product: true } } }
+        })
+      ]);
 
-      // Group by date (YYYY-MM-DD)
-      const salesByDate: Record<string, number> = {};
+      const salesByDate: Record<string, { revenue: number; cogs: number; profit: number; count: number }> = {};
       
       orders.forEach(order => {
         const dateStr = order.createdAt.toISOString().split('T')[0];
-        salesByDate[dateStr] = (salesByDate[dateStr] || 0) + Number(order.total);
+        if (!salesByDate[dateStr]) salesByDate[dateStr] = { revenue: 0, cogs: 0, profit: 0, count: 0 };
+        
+        const rev = Number(order.total || 0);
+        let cogs = 0;
+        order.items.forEach(item => {
+          const cost = Number(item.costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
+          cogs += cost * Number(item.quantity || 0);
+        });
+
+        salesByDate[dateStr].revenue += rev;
+        salesByDate[dateStr].cogs += cogs;
+        salesByDate[dateStr].profit += (rev - cogs);
+        salesByDate[dateStr].count += 1;
       });
 
-      // Format thành array để vẽ chart
+      returns.forEach(ret => {
+        const dateStr = ret.createdAt.toISOString().split('T')[0];
+        if (!salesByDate[dateStr]) salesByDate[dateStr] = { revenue: 0, cogs: 0, profit: 0, count: 0 };
+
+        const retVal = Number(ret.total || 0);
+        let retCogs = 0;
+        ret.items.forEach(item => {
+          const cost = Number((item as any).costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0);
+          retCogs += cost * Number(item.quantity || 0);
+        });
+
+        salesByDate[dateStr].revenue -= retVal;
+        salesByDate[dateStr].cogs -= retCogs;
+        salesByDate[dateStr].profit -= (retVal - retCogs);
+      });
+
       const chartData = Object.keys(salesByDate).sort().map(date => ({
         date,
-        total: salesByDate[date]
+        day: Number(date.split('-')[2]),
+        revenue: salesByDate[date].revenue,
+        cogs: salesByDate[date].cogs,
+        profit: salesByDate[date].profit,
+        count: salesByDate[date].count
       }));
 
       res.json(chartData);
@@ -213,26 +382,23 @@ export const reportController = {
         endDate = new Date(req.query.toDate as string);
         endDate.setHours(23, 59, 59, 999);
       } else {
-        // default to today
         startDate.setHours(0, 0, 0, 0);
         endDate.setHours(23, 59, 59, 999);
       }
 
-      // Fetch all COMPLETED orders in period with items & product details
       const orders = await prisma.order.findMany({
         where: { 
           tenantId,
           createdAt: { gte: startDate, lte: endDate },
-          status: 'COMPLETED'
+          status: { in: ['COMPLETED', 'PAID'] }
         },
         include: {
           items: {
-            include: { product: { select: { id: true, name: true, sku: true, unit: true, categoryId: true } } }
+            include: { product: { select: { id: true, name: true, sku: true, unit: true, categoryId: true, costPrice: true } } }
           }
         }
       });
 
-      // Fetch all COMPLETED returns in period with items
       const returns = await prisma.return.findMany({
         where: { 
           tenantId,
@@ -240,11 +406,10 @@ export const reportController = {
           status: 'COMPLETED' 
         },
         include: {
-          items: true
+          items: { include: { product: true } }
         }
       });
 
-      // Aggregate
       const productMap: Record<number, any> = {};
 
       orders.forEach(order => {
@@ -252,29 +417,41 @@ export const reportController = {
           if (!productMap[item.productId]) {
             productMap[item.productId] = {
               id: item.productId,
-              sku: item.product.sku,
-              name: item.product.name,
-              unit: item.product.unit,
-              categoryId: item.product.categoryId,
+              sku: item.product?.sku || '',
+              name: item.product?.name || 'Sản phẩm',
+              unit: item.product?.unit || 'Kg',
+              categoryId: item.product?.categoryId,
               soldQty: 0,
               revenue: 0,
+              cogs: 0,
               returnQty: 0,
               returnVal: 0,
-              netRevenue: 0
+              netRevenue: 0,
+              profit: 0
             };
           }
-          productMap[item.productId].soldQty += Number(item.quantity);
-          productMap[item.productId].revenue += Number(item.total);
-          productMap[item.productId].netRevenue += Number(item.total);
+          const itemVal = Number(item.total || (Number(item.price || 0) * Number(item.quantity || 0)));
+          const itemCost = Number(item.costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0) * Number(item.quantity || 0);
+
+          productMap[item.productId].soldQty += Number(item.quantity || 0);
+          productMap[item.productId].revenue += itemVal;
+          productMap[item.productId].cogs += itemCost;
+          productMap[item.productId].netRevenue += itemVal;
+          productMap[item.productId].profit += (itemVal - itemCost);
         });
       });
 
       returns.forEach(ret => {
         ret.items.forEach(item => {
           if (productMap[item.productId]) {
-            productMap[item.productId].returnQty += Number(item.quantity);
-            productMap[item.productId].returnVal += Number(item.total);
-            productMap[item.productId].netRevenue -= Number(item.total);
+            const itemVal = Number(item.total || (Number(item.price || 0) * Number(item.quantity || 0)));
+            const itemCost = Number((item as any).costPrice || (item as any).product?.costPrice || (item as any).product?.cost_price || 0) * Number(item.quantity || 0);
+
+            productMap[item.productId].returnQty += Number(item.quantity || 0);
+            productMap[item.productId].returnVal += itemVal;
+            productMap[item.productId].cogs -= itemCost;
+            productMap[item.productId].netRevenue -= itemVal;
+            productMap[item.productId].profit -= (itemVal - itemCost);
           }
         });
       });
@@ -300,12 +477,11 @@ export const reportController = {
         endDate.setHours(23, 59, 59, 999);
       }
 
-      // Fetch all COMPLETED orders in period that have a customer attached
       const orders = await prisma.order.findMany({
         where: {
           tenantId,
           createdAt: { gte: startDate, lte: endDate },
-          status: 'COMPLETED',
+          status: { in: ['COMPLETED', 'PAID'] },
           customerId: { not: null }
         },
         include: {
@@ -313,7 +489,6 @@ export const reportController = {
         }
       });
 
-      // Fetch all COMPLETED returns in period that have a customer attached
       const returns = await prisma.return.findMany({
         where: { 
           tenantId,
@@ -326,7 +501,6 @@ export const reportController = {
         }
       });
 
-      // Aggregate
       const customerMap: Record<number, any> = {};
 
       orders.forEach(order => {
