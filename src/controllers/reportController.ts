@@ -219,16 +219,15 @@ export const reportController = {
       let soldCostPrice = 0;
 
       orders.forEach((o: any) => {
-        let orderItemsSum = 0;
+        const orderTotal = Number(o.total || 0);
+        const discountVal = Number(o.discount || 0);
+        grossRevenue += (orderTotal + discountVal);
+        orderDiscounts += discountVal;
+
         (o.items || []).forEach((item: any) => {
-          const itemVal = Number(item.price || 0) * Number(item.quantity || 0);
-          orderItemsSum += itemVal;
           const cost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
           soldCostPrice += cost * Number(item.quantity || 0);
         });
-        grossRevenue += orderItemsSum > 0 ? orderItemsSum : Number(o.total || 0);
-        const discountVal = Number(o.discount || 0);
-        orderDiscounts += discountVal;
       });
 
       let returnTotalVal = 0;
@@ -247,8 +246,15 @@ export const reportController = {
       const cogs = soldCostPrice - returnCostPrice;
       const grossProfit = netRevenue - cogs;
 
+      const isSupplierPayment = (c: any) => {
+        if (c.supplierId || c.partnerType === 'supplier') return true;
+        const cat = (c.category || '').toLowerCase();
+        if (cat.includes('nhà cung cấp') || cat.includes('ncc') || cat.includes('trả nợ') || cat.includes('tiền trả ncc')) return true;
+        return false;
+      };
+
       const operatingExpenses = cashbook
-        .filter((c: any) => c.type === 'EXPENSE' && c.category !== 'Thanh toán nợ nhà cung cấp' && c.category !== 'Trả nợ NCC')
+        .filter((c: any) => c.type === 'EXPENSE' && !isSupplierPayment(c) && c.category !== 'Chi phí khác')
         .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
 
       const operatingProfit = grossProfit - operatingExpenses;

@@ -1,59 +1,49 @@
 import prisma from '../config/database';
 
 async function main() {
-  const f = '2026-01-01';
-  const t = '2026-12-31';
-  const startDate = new Date(f);
-  startDate.setHours(0, 0, 0, 0);
-  const endDate = new Date(t);
-  endDate.setHours(23, 59, 59, 999);
+  const startDate = new Date('2026-07-01T00:00:00.000Z');
+  const endDate = new Date('2026-07-31T23:59:59.999Z');
 
-  console.log('startDate:', startDate.toISOString());
-  console.log('endDate:', endDate.toISOString());
   const tenant = await prisma.tenant.findFirst();
-  if (!tenant) {
-    console.log('No tenant');
-    return;
-  }
+  if (!tenant) return;
+
   const orders = await prisma.order.findMany({
     where: { tenantId: tenant.id, createdAt: { gte: startDate, lte: endDate }, status: { not: 'CANCELLED' } },
     include: { items: { include: { product: true } } }
   });
+
   const returns = await prisma.return.findMany({
     where: { tenantId: tenant.id, createdAt: { gte: startDate, lte: endDate } },
     include: { items: { include: { product: true } } }
   });
 
-  let grossRev = 0;
-  let soldCogs = 0;
-  orders.forEach((o: any) => {
-    grossRev += Number(o.total || 0);
-    o.items.forEach((item: any) => {
-      const c = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
-      soldCogs += c * Number(item.quantity || 0);
-    });
+  const cashbook = await prisma.cashbookEntry.findMany({
+    where: { tenantId: tenant.id, createdAt: { gte: startDate, lte: endDate }, isAccounting: true, status: { not: 'cancelled' } }
   });
 
-  let retTotal = 0;
-  let retCogs = 0;
-  returns.forEach((r: any) => {
-    retTotal += Number(r.total || 0);
-    r.items.forEach((item: any) => {
-      const c = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
-      retCogs += c * Number(item.quantity || 0);
-    });
-  });
+  const totalOrderAmount = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
+  const totalOrderDiscount = orders.reduce((sum: number, o: any) => sum + Number(o.discount || 0), 0);
+  const totalSubtotal = orders.reduce((sum: number, o: any) => sum + Number(o.subtotal || o.total || 0), 0);
 
-  const netRev = grossRev - retTotal;
-  const netCogs = soldCogs - retCogs;
-  const grossProfit = netRev - netCogs;
+  console.log('--- TEST JULY 2026 CALCULATIONS ---');
+  console.log('sum(Order.total):', totalOrderAmount.toLocaleString('vi-VN'));
+  console.log('sum(Order.discount):', totalOrderDiscount.toLocaleString('vi-VN'));
+  console.log('sum(Order.subtotal):', totalSubtotal.toLocaleString('vi-VN'));
+  console.log('sum(Order.total + Order.discount):', (totalOrderAmount + totalOrderDiscount).toLocaleString('vi-VN'));
 
-  console.log('--- CHI TIẾT BÁO CÁO THÁNG 7/2026 ---');
-  console.log('(1) Doanh thu bán hàng:', grossRev.toLocaleString('vi-VN'));
-  console.log('(2) Giảm trừ doanh thu:', retTotal.toLocaleString('vi-VN'));
-  console.log('(3) Doanh thu thuần:', netRev.toLocaleString('vi-VN'));
-  console.log('(4) Giá vốn hàng bán (COGS):', netCogs.toLocaleString('vi-VN'));
-  console.log('(5) Lợi nhuận gộp:', grossProfit.toLocaleString('vi-VN'));
+  const isSupplierPayment = (c: any) => {
+    if (c.supplierId || c.partnerType === 'supplier') return true;
+    const cat = (c.category || '').toLowerCase();
+    if (cat.includes('nhà cung cấp') || cat.includes('ncc') || cat.includes('trả nợ') || cat.includes('tiền trả')) return true;
+    return false;
+  };
+
+  const operatingExpenses = cashbook
+    .filter((c: any) => c.type === 'EXPENSE' && !isSupplierPayment(c))
+    .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+
+  console.log('\n--- OPERATING EXPENSES (AFTER FILTERING SUPPLIER PAYMENTS) ---');
+  console.log('Chi phí (6):', operatingExpenses.toLocaleString('vi-VN'));
 }
 
 main().catch(console.error).finally(() => process.exit(0));
