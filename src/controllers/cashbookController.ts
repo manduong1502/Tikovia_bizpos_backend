@@ -94,11 +94,13 @@ export const cashbookController = {
         createdBy,
         customerId,
         supplierId,
+        createdAt,
       } = req.body;
 
       const amountNum = Number(amount || 0);
       const typeEnum = (type === 'thu' || type === 'INCOME') ? 'INCOME' : 'EXPENSE';
       const prefix = typeEnum === 'INCOME' ? 'TTM' : 'TCM';
+      const customCreatedAt = createdAt ? new Date(createdAt) : new Date();
 
       const entry = await prisma.$transaction(async (tx) => {
         const isAccountingBool = isAccounting === undefined ? true : Boolean(isAccounting);
@@ -112,7 +114,7 @@ export const cashbookController = {
           const newDebt = Number(cust.totalDebt) + debtChange;
           await tx.customer.update({
             where: { id: cust.id },
-            data: { totalDebt: newDebt, lastTransaction: new Date() }
+            data: { totalDebt: newDebt, lastTransaction: customCreatedAt }
           });
         }
 
@@ -125,7 +127,7 @@ export const cashbookController = {
           const newDebt = Number(sup.totalDebt) + debtChange;
           await tx.supplier.update({
             where: { id: sup.id },
-            data: { totalDebt: newDebt, lastTransaction: new Date() }
+            data: { totalDebt: newDebt, lastTransaction: customCreatedAt }
           });
         }
 
@@ -155,6 +157,7 @@ export const cashbookController = {
             customerId: customerId ? Number(customerId) : null,
             supplierId: supplierId ? Number(supplierId) : null,
             tenantId,
+            createdAt: customCreatedAt,
           },
           include: { user: { select: { id: true, fullName: true } } },
         });

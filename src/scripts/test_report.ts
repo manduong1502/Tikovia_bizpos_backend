@@ -1,8 +1,15 @@
 import prisma from '../config/database';
 
 async function main() {
-  const startDate = new Date('2026-07-01T00:00:00.000Z');
-  const endDate = new Date('2026-07-31T23:59:59.999Z');
+  const f = '2026-01-01';
+  const t = '2026-12-31';
+  const startDate = new Date(f);
+  startDate.setHours(0, 0, 0, 0);
+  const endDate = new Date(t);
+  endDate.setHours(23, 59, 59, 999);
+
+  console.log('startDate:', startDate.toISOString());
+  console.log('endDate:', endDate.toISOString());
   const tenant = await prisma.tenant.findFirst();
   if (!tenant) {
     console.log('No tenant');
