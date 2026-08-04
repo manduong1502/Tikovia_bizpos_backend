@@ -205,7 +205,7 @@ export const orderController = {
         ];
       }
 
-      const [data, total] = await Promise.all([
+      const [data, total, summaryAggregate] = await Promise.all([
         prisma.order.findMany({
           where,
           include: {
@@ -222,9 +222,19 @@ export const orderController = {
           orderBy: { createdAt: 'desc' },
         }),
         prisma.order.count({ where }),
+        prisma.order.aggregate({
+          where,
+          _sum: { total: true, paid: true }
+        })
       ]);
 
-      res.json({ data, total, page, limit, totalPages: Math.ceil(total / limit) });
+      const summaryStats = {
+        totalCount: total,
+        totalMoney: Number(summaryAggregate._sum.total || 0),
+        totalPaid: Number(summaryAggregate._sum.paid || 0),
+      };
+
+      res.json({ data, total, page, limit, totalPages: Math.ceil(total / limit), summaryStats });
     } catch (error) {
       next(error);
     }
