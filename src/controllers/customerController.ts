@@ -74,11 +74,14 @@ export const customerController = {
       const andConditions: any[] = [];
 
       if (search) {
+        const q = search.trim();
         andConditions.push({
           OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { code: { contains: search, mode: 'insensitive' } },
-            { phone: { contains: search, mode: 'insensitive' } },
+            { name: { contains: q, mode: 'insensitive' } },
+            { code: { contains: q, mode: 'insensitive' } },
+            { phone: { contains: q, mode: 'insensitive' } },
+            { address: { contains: q, mode: 'insensitive' } },
+            { note: { contains: q, mode: 'insensitive' } },
           ]
         });
       }
@@ -129,7 +132,8 @@ export const customerController = {
           },
           orderBy: [
             { lastTransaction: { sort: 'desc', nulls: 'last' } },
-            { createdAt: 'desc' }
+            { updatedAt: 'desc' },
+            { id: 'desc' }
           ],
         }),
         prisma.customer.count({ where }),
