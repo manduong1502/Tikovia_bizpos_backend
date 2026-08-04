@@ -16,7 +16,8 @@ export const cashbookController = {
       const from = req.query.from as string;
       const to = req.query.to as string;
 
-      const where: any = { tenantId };
+      const customerIdParam = req.query.customerId ? parseInt(req.query.customerId as string, 10) : undefined;
+      if (customerIdParam && !isNaN(customerIdParam)) where.customerId = customerIdParam;
 
       if (from || to) {
         where.createdAt = {};
