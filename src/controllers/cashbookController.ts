@@ -61,7 +61,9 @@ export const cashbookController = {
       }
 
       if (partnerType && partnerType !== 'Tất cả') {
-        where.partnerType = partnerType;
+        if (!customerIdParam) {
+          where.partnerType = partnerType;
+        }
       }
 
       if (partnerPhone) {
