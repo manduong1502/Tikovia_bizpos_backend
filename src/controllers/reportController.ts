@@ -484,18 +484,15 @@ export const reportController = {
   sales: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
-      const days = parseInt(req.query.days as string) || 30;
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-      startDate.setHours(0, 0, 0, 0);
+      const { startDate, endDate } = parseReportDateRange(req.query);
 
       const [rawOrders, rawReturns] = await Promise.all([
         prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: startDate }, status: { not: 'CANCELLED' } },
+          where: { tenantId, createdAt: { gte: startDate, lte: endDate }, status: { not: 'CANCELLED' } },
           include: { items: { include: { product: true } } }
         }),
         prisma.return.findMany({
-          where: { tenantId, createdAt: { gte: startDate }, status: 'COMPLETED' },
+          where: { tenantId, createdAt: { gte: startDate, lte: endDate }, status: 'COMPLETED' },
           include: { items: { include: { product: true } } }
         })
       ]);
@@ -506,7 +503,8 @@ export const reportController = {
       const salesByDate: Record<string, { revenue: number; cogs: number; profit: number; count: number }> = {};
       
       orders.forEach((order: any) => {
-        const dateStr = order.createdAt.toISOString().split('T')[0];
+        const vnTime = new Date(new Date(order.createdAt).getTime() + 7 * 3600 * 1000);
+        const dateStr = `${vnTime.getUTCFullYear()}-${String(vnTime.getUTCMonth() + 1).padStart(2, '0')}-${String(vnTime.getUTCDate()).padStart(2, '0')}`;
         if (!salesByDate[dateStr]) salesByDate[dateStr] = { revenue: 0, cogs: 0, profit: 0, count: 0 };
         
         const rev = Number(order.total || 0);
@@ -523,7 +521,8 @@ export const reportController = {
       });
 
       returns.forEach((ret: any) => {
-        const dateStr = ret.createdAt.toISOString().split('T')[0];
+        const vnTime = new Date(new Date(ret.createdAt).getTime() + 7 * 3600 * 1000);
+        const dateStr = `${vnTime.getUTCFullYear()}-${String(vnTime.getUTCMonth() + 1).padStart(2, '0')}-${String(vnTime.getUTCDate()).padStart(2, '0')}`;
         if (!salesByDate[dateStr]) salesByDate[dateStr] = { revenue: 0, cogs: 0, profit: 0, count: 0 };
 
         const retVal = Number(ret.total || 0);
@@ -649,8 +648,7 @@ export const reportController = {
           where: {
             tenantId,
             createdAt: { gte: startDate, lte: endDate },
-            status: { not: 'CANCELLED' },
-            customerId: { not: null }
+            status: { not: 'CANCELLED' }
           },
           include: {
             customer: { select: { id: true, name: true, phone: true, code: true } }
@@ -660,8 +658,7 @@ export const reportController = {
           where: { 
             tenantId,
             createdAt: { gte: startDate, lte: endDate },
-            status: 'COMPLETED',
-            customerId: { not: null }
+            status: 'COMPLETED'
           },
           include: {
             customer: { select: { id: true, name: true, phone: true, code: true } }
@@ -672,42 +669,42 @@ export const reportController = {
       const orders = filterByWorkingHoursDateRange(rawOrders, req.query);
       const returns = filterByWorkingHoursDateRange(rawReturns, req.query);
 
-      const customerMap: Record<number, any> = {};
+      const customerMap: Record<string, any> = {};
 
       orders.forEach((order: any) => {
         const cus = order.customer;
-        if (!cus) return;
-        if (!customerMap[cus.id]) {
-          customerMap[cus.id] = {
-            id: cus.id,
-            code: cus.code,
-            name: cus.name,
-            phone: cus.phone,
+        const cusId = cus?.id ? String(cus.id) : 'retail';
+        if (!customerMap[cusId]) {
+          customerMap[cusId] = {
+            id: cus?.id || 0,
+            code: cus?.code || 'KL',
+            name: cus?.name || 'Khách lẻ',
+            phone: cus?.phone || '',
             revenue: 0,
             returnVal: 0,
             netRevenue: 0
           };
         }
-        customerMap[cus.id].revenue += Number(order.total);
-        customerMap[cus.id].netRevenue += Number(order.total);
+        customerMap[cusId].revenue += Number(order.total || 0);
+        customerMap[cusId].netRevenue += Number(order.total || 0);
       });
 
       returns.forEach((ret: any) => {
         const cus = ret.customer;
-        if (!cus) return;
-        if (!customerMap[cus.id]) {
-          customerMap[cus.id] = {
-            id: cus.id,
-            code: cus.code,
-            name: cus.name,
-            phone: cus.phone,
+        const cusId = cus?.id ? String(cus.id) : 'retail';
+        if (!customerMap[cusId]) {
+          customerMap[cusId] = {
+            id: cus?.id || 0,
+            code: cus?.code || 'KL',
+            name: cus?.name || 'Khách lẻ',
+            phone: cus?.phone || '',
             revenue: 0,
             returnVal: 0,
             netRevenue: 0
           };
         }
-        customerMap[cus.id].returnVal += Number(ret.total);
-        customerMap[cus.id].netRevenue -= Number(ret.total);
+        customerMap[cusId].returnVal += Number(ret.total || 0);
+        customerMap[cusId].netRevenue -= Number(ret.total || 0);
       });
 
       const result = Object.values(customerMap);
