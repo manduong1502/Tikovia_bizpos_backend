@@ -273,27 +273,86 @@ export const supplierController = {
         return res.status(404).json({ message: 'Không tìm thấy nhà cung cấp' });
       }
 
-      const rawLedgers: any = await prisma.$queryRaw`
-        SELECT "code", "type", "date", "amount"
-        FROM "SupplierDebtLedger"
-        WHERE "tenantId" = ${tenantId} AND ("supplierId" = ${id} OR "supplierCode" = ${supplier.code} OR "supplierName" = ${supplier.name})
-        ORDER BY "date" DESC, "id" DESC;
-      `;
+      // Get all PurchaseOrders for this supplier
+      const purchaseOrders = await prisma.purchaseOrder.findMany({
+        where: { tenantId, supplierId: id, status: 'COMPLETED' },
+        select: { code: true, total: true, paid: true, createdAt: true },
+        orderBy: { createdAt: 'desc' }
+      });
 
-      const list = Array.isArray(rawLedgers) ? rawLedgers : [];
+      // Get all CashbookEntries (payments) for this supplier
+      const cashbookEntries = await prisma.cashbookEntry.findMany({
+        where: { tenantId, supplierId: id, type: 'EXPENSE' },
+        select: { code: true, amount: true, createdAt: true },
+        orderBy: { createdAt: 'desc' }
+      });
 
+      // Get all PurchaseReturns for this supplier
+      const purchaseReturns = await prisma.purchaseReturn.findMany({
+        where: { tenantId, supplierId: id, status: 'COMPLETED' },
+        select: { code: true, total: true, createdAt: true },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      // Merge all entries into a single list
+      const entries: { code: string; type: string; typeName: string; date: Date; amount: number }[] = [];
+
+      for (const po of purchaseOrders) {
+        entries.push({
+          code: po.code,
+          type: 'import',
+          typeName: 'Nhập hàng',
+          date: po.createdAt,
+          amount: Number(po.total || 0) // PO increases debt
+        });
+      }
+
+      for (const ce of cashbookEntries) {
+        entries.push({
+          code: ce.code,
+          type: 'payment',
+          typeName: 'Thanh toán',
+          date: ce.createdAt,
+          amount: -Math.abs(Number(ce.amount || 0)) // Payment decreases debt
+        });
+      }
+
+      for (const pr of purchaseReturns) {
+        entries.push({
+          code: pr.code,
+          type: 'return',
+          typeName: 'Trả hàng',
+          date: pr.createdAt,
+          amount: -Number(pr.total || 0) // Return decreases debt
+        });
+      }
+
+      // Sort by date DESC (newest first), with payments before imports at same time (like KiotViet)
+      entries.sort((a, b) => {
+        const timeDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (timeDiff !== 0) return timeDiff;
+        // At same time: payment first, then return, then import
+        const getPriority = (t: string) => {
+          if (t === 'payment') return 1;
+          if (t === 'return') return 2;
+          if (t === 'import') return 3;
+          return 4;
+        };
+        return getPriority(a.type) - getPriority(b.type);
+      });
+
+      // Calculate running debt from current total debt going backwards
       let tempDebt = Number(supplier.totalDebt || 0);
-      const ledger = list.map((item: any) => {
-        const amt = Number(item.amount || 0);
+      const ledger = entries.map((item) => {
         const runningDebt = tempDebt;
-        tempDebt -= amt;
+        tempDebt -= item.amount;
         return {
           code: item.code,
-          type: item.code.startsWith('PN') ? 'import' : (item.code.startsWith('PC') || item.code.startsWith('TT') ? 'payment' : (item.code.startsWith('THN') ? 'return' : 'balance')),
-          typeName: item.type || (item.code.startsWith('PN') ? 'Nhập hàng' : (item.code.startsWith('PC') ? 'Thanh toán' : 'Giao dịch')),
+          type: item.type,
+          typeName: item.typeName,
           date: item.date,
-          amount: amt,
-          debt: amt,
+          amount: item.amount,
+          debt: item.amount,
           runningDebt
         };
       });

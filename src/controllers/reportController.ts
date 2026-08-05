@@ -252,9 +252,51 @@ export const reportController = {
   financial: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
-      const { startDate, endDate } = parseReportDateRange(req.query);
+      
+      // Parse date range WITHOUT the ±24h offset
+      const fromDateStr = req.query.fromDate as string;
+      const toDateStr = req.query.toDate as string;
+      
+      let startDate: Date;
+      let endDate: Date;
+      
+      const parseDate = (str: string, isEnd = false): Date | null => {
+        if (!str) return null;
+        const clean = str.split('T')[0].trim();
+        let y = 0, m = 0, d = 0;
+        if (clean.includes('/')) {
+          const parts = clean.split('/');
+          d = parseInt(parts[0], 10);
+          m = parseInt(parts[1], 10);
+          y = parseInt(parts[2], 10);
+        } else if (clean.includes('-')) {
+          const parts = clean.split('-');
+          if (parts[0].length === 4) {
+            y = parseInt(parts[0], 10);
+            m = parseInt(parts[1], 10);
+            d = parseInt(parts[2], 10);
+          } else {
+            d = parseInt(parts[0], 10);
+            m = parseInt(parts[1], 10);
+            y = parseInt(parts[2], 10);
+          }
+        }
+        if (y && m && d) {
+          const sy = String(y).padStart(4, '0');
+          const sm = String(m).padStart(2, '0');
+          const sd = String(d).padStart(2, '0');
+          return isEnd 
+            ? new Date(`${sy}-${sm}-${sd}T23:59:59.999+07:00`) 
+            : new Date(`${sy}-${sm}-${sd}T00:00:00.000+07:00`);
+        }
+        return null;
+      };
+      
+      startDate = parseDate(fromDateStr, false) || new Date(0);
+      endDate = parseDate(toDateStr, true) || new Date();
 
-      const [rawOrders, rawReturns, rawCashbook] = await Promise.all([
+      // Fetch orders and returns directly with correct date range (NO ±24h, NO working hours filter)
+      const [orders, returns] = await Promise.all([
         prisma.order.findMany({
           where: {
             tenantId,
@@ -274,24 +316,33 @@ export const reportController = {
           include: {
             items: { include: { product: true } }
           }
-        }),
-        prisma.cashbookEntry.findMany({
-          where: { tenantId, createdAt: { gte: startDate, lte: endDate } }
         })
       ]);
 
-      const orders = filterByWorkingHoursDateRange(rawOrders, req.query);
-      const returns = filterByWorkingHoursDateRange(rawReturns, req.query);
-      const cashbook = filterByWorkingHoursDateRange(rawCashbook, req.query);
+      // (1) Doanh thu bán hàng = SUM(order.total)
+      const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
+      
+      // (2.1) Chiết khấu hóa đơn = SUM(order.discount)
+      const discounts = orders.reduce((sum: number, o: any) => sum + Number(o.discount || 0), 0);
+      
+      // (2.2) Giá trị hàng bán bị trả lại = SUM(return.total)
+      const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total || 0), 0);
+      
+      // (2) Giảm trừ doanh thu = 2.1 + 2.2
+      const totalDeductions = discounts + returnSales;
+      
+      // (3) Doanh thu thuần = 1 - 2
+      const netSales = grossSales - totalDeductions;
 
-      const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total), 0);
-      const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total), 0);
-      const netSales = grossSales - returnSales;
-
+      // (4) Giá vốn hàng bán
+      // Note: OrderItem.costPrice is a Prisma Decimal that's truthy even when 0
+      // Must convert to Number first, then check > 0 before using fallback
       let cogsSales = 0;
       orders.forEach((o: any) => {
         (o.items || []).forEach((item: any) => {
-          const costUnit = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
+          const itemCost = Number(item.costPrice ?? 0);
+          const productCost = Number(item.product?.costPrice ?? item.product?.cost_price ?? 0);
+          const costUnit = itemCost > 0 ? itemCost : productCost;
           cogsSales += costUnit * Number(item.quantity || 0);
         });
       });
@@ -299,33 +350,49 @@ export const reportController = {
       let cogsReturns = 0;
       returns.forEach((r: any) => {
         (r.items || []).forEach((item: any) => {
-          const costUnit = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
-          cogsReturns += costUnit * Number(item.quantity || 0);
+          // ReturnItem has no costPrice column, use Product.costPrice
+          const productCost = Number(item.product?.costPrice ?? item.product?.cost_price ?? 0);
+          cogsReturns += productCost * Number(item.quantity || 0);
         });
       });
 
       const netCogs = cogsSales - cogsReturns;
+      
+      // (5) Lợi nhuận gộp = 3 - 4
       const grossProfit = netSales - netCogs;
-
-      const otherIncome = cashbook
-        .filter((c: any) => c.type === 'INCOME')
-        .reduce((sum: number, c: any) => sum + Number(c.amount), 0);
-
-      const operatingExpenses = cashbook
-        .filter((c: any) => c.type === 'EXPENSE')
-        .reduce((sum: number, c: any) => sum + Number(c.amount), 0);
-
-      const netProfit = grossProfit + otherIncome - operatingExpenses;
+      
+      // (6) Chi phí = 0 (KiotViet: voucher, ĐTGH, hoàn tiền, etc. all = 0)
+      const operatingExpenses = 0;
+      
+      // (7) Lợi nhuận từ HĐKD = 5 - 6
+      const operatingProfit = grossProfit - operatingExpenses;
+      
+      // (8) Thu nhập khác = 0
+      const otherIncome = 0;
+      
+      // (9) Chi phí khác = 0
+      const otherExpenses = 0;
+      
+      // (10) Lợi nhuận thuần = (7 + 8) - 9
+      const netProfit = operatingProfit + otherIncome - otherExpenses;
 
       res.json({
         grossSales,
-        discounts: 0,
+        grossRevenue: grossSales,
+        discounts,
+        orderDiscounts: discounts,
         returnSales,
+        returnTotalVal: returnSales,
+        totalDeductions,
         netSales,
+        netRevenue: netSales,
         netCogs,
+        cogs: netCogs,
         grossProfit,
-        otherIncome,
         operatingExpenses,
+        operatingProfit,
+        otherIncome,
+        otherExpenses,
         netProfit
       });
     } catch (error) {

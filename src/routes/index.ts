@@ -107,6 +107,7 @@ router.get('/reports/customers', authenticate, reportController.getCustomers);
 router.get('/reports/financial', authenticate, reportController.financial);
 
 // ─── Cashbook ───
+router.get('/cashbook/summary', authenticate, cashbookController.getSummary);
 router.get('/cashbook', authenticate, cashbookController.getAll);
 router.post('/cashbook', authenticate, authorize('ADMIN', 'MANAGER'), cashbookController.create);
 router.put('/cashbook/:id/cancel', authenticate, authorize('ADMIN', 'MANAGER'), cashbookController.cancel);

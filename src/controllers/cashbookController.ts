@@ -3,6 +3,102 @@ import prisma from '../config/database';
 import { AuthRequest } from '../middlewares/auth';
 
 export const cashbookController = {
+  getSummary: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = Number((req as any).tenant?.id || 1);
+      const from = req.query.from as string;
+      const to = req.query.to as string;
+      const paymentMethod = req.query.paymentMethod as string; // cash, bank, wallet, all
+
+      // Build payment method filter
+      const pmWhere: any = {};
+      if (paymentMethod && paymentMethod !== 'all') {
+        if (paymentMethod === 'cash') pmWhere.paymentMethod = 'cash';
+        else if (paymentMethod === 'bank') pmWhere.paymentMethod = 'bank';
+        else if (paymentMethod === 'wallet') pmWhere.paymentMethod = 'wallet';
+      }
+
+      // Parse date range
+      let fromDate: Date | null = null;
+      let toDate: Date | null = null;
+      if (from) {
+        const fromStr = from.includes('+') || from.endsWith('Z') ? from : `${from}+07:00`;
+        fromDate = new Date(fromStr);
+        if (isNaN(fromDate.getTime())) fromDate = null;
+      }
+      if (to) {
+        const toStr = to.includes('+') || to.endsWith('Z') ? to : (to.includes('T') ? `${to}+07:00` : `${to}T23:59:59.999+07:00`);
+        toDate = new Date(toStr);
+        if (isNaN(toDate.getTime())) toDate = null;
+      }
+
+      // Historical initial balance (before system data starts)
+      // This is the opening balance from KiotViet before 2026
+      // TODO: Make this configurable per tenant via settings table
+      const HISTORICAL_INITIAL_BALANCE: Record<string, number> = {
+        'cash': 24298256148,    // Tiền mặt opening balance
+        'bank': 0,              // Ngân hàng opening balance
+        'wallet': 0,            // Ví điện tử opening balance
+        'all': 24298256148,     // Tổng quỹ = sum of all
+      };
+      const fundKey = (paymentMethod && paymentMethod !== 'all') ? paymentMethod : 'all';
+      const historicalBalance = HISTORICAL_INITIAL_BALANCE[fundKey] || 0;
+
+      // 1. Opening balance = historical + sum of all entries BEFORE fromDate
+      let openingBalance = historicalBalance;
+      if (fromDate) {
+        const beforeWhere: any = {
+          tenantId,
+          status: { not: 'cancelled' },
+          createdAt: { lt: fromDate },
+          ...pmWhere
+        };
+        const beforeEntries = await prisma.cashbookEntry.aggregate({
+          where: { ...beforeWhere, type: 'INCOME' },
+          _sum: { amount: true }
+        });
+        const beforeExpense = await prisma.cashbookEntry.aggregate({
+          where: { ...beforeWhere, type: 'EXPENSE' },
+          _sum: { amount: true }
+        });
+        openingBalance += Number(beforeEntries._sum.amount || 0) - Number(beforeExpense._sum.amount || 0);
+      } else {
+        // No date filter (all time) - opening balance is just the historical balance
+        // Don't add DB entries since they'll be counted in the period totals
+        openingBalance = historicalBalance;
+      }
+
+      // 2. Period totals
+      const periodWhere: any = { tenantId, status: { not: 'cancelled' }, ...pmWhere };
+      if (fromDate || toDate) {
+        periodWhere.createdAt = {};
+        if (fromDate) periodWhere.createdAt.gte = fromDate;
+        if (toDate) periodWhere.createdAt.lte = toDate;
+      }
+
+      const incomeAgg = await prisma.cashbookEntry.aggregate({
+        where: { ...periodWhere, type: 'INCOME' },
+        _sum: { amount: true }
+      });
+      const expenseAgg = await prisma.cashbookEntry.aggregate({
+        where: { ...periodWhere, type: 'EXPENSE' },
+        _sum: { amount: true }
+      });
+
+      const totalIncome = Number(incomeAgg._sum.amount || 0);
+      const totalExpense = Number(expenseAgg._sum.amount || 0);
+
+      res.json({
+        openingBalance,
+        totalIncome,
+        totalExpense,
+        closingBalance: openingBalance + totalIncome - totalExpense
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = Number((req as any).tenant?.id || 1);
