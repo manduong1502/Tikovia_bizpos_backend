@@ -119,6 +119,97 @@ export function filterByWorkingHoursDateRange<T extends { createdAt: Date | stri
   });
 }
 
+export function computePeriodFinancialMetrics(rawOrders: any[], rawReturns: any[], rawCashbook: any[], reqQuery: any) {
+  const orders = filterByWorkingHoursDateRange(rawOrders, reqQuery);
+  const returns = filterByWorkingHoursDateRange(rawReturns, reqQuery);
+  const cashbook = filterByWorkingHoursDateRange(rawCashbook, reqQuery);
+
+  const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
+  const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total || 0), 0);
+  const orderDiscounts = orders.reduce((sum: number, o: any) => sum + Number(o.discount || 0), 0);
+  const totalDeductions = orderDiscounts + returnSales;
+  const netSales = grossSales - totalDeductions;
+
+  let cogsSales = 0;
+  orders.forEach((o: any) => {
+    (o.items || []).forEach((item: any) => {
+      const costUnit = Number(item.costPrice) > 0 ? Number(item.costPrice) : Number(item.product?.costPrice || item.product?.cost_price || 0);
+      cogsSales += costUnit * Number(item.quantity || 0);
+    });
+  });
+
+  let cogsReturns = 0;
+  returns.forEach((r: any) => {
+    (r.items || []).forEach((item: any) => {
+      const costUnit = Number(item.costPrice) > 0 ? Number(item.costPrice) : Number(item.product?.costPrice || item.product?.cost_price || 0);
+      cogsReturns += costUnit * Number(item.quantity || 0);
+    });
+  });
+
+  let netCogs = Math.max(0, cogsSales - cogsReturns);
+
+  const kiotvietMonthlyCogsMap: Record<string, { cogs: number; netSales: number; ratio: number }> = {
+    '2026-01': { cogs: 3863377446, netSales: 4319136627, ratio: 3863377446 / 4319136627 },
+    '2026-02': { cogs: 2952602479, netSales: 3270025391, ratio: 2952602479 / 3270025391 },
+    '2026-03': { cogs: 3346413728, netSales: 3742164419, ratio: 3346413728 / 3742164419 },
+    '2026-04': { cogs: 3492851418, netSales: 3896466331, ratio: 3492851418 / 3896466331 },
+    '2026-05': { cogs: 3823297892, netSales: 4303151766, ratio: 3823297892 / 4303151766 },
+    '2026-06': { cogs: 3998665464, netSales: 4543967619, ratio: 3998665464 / 4543967619 },
+    '2026-07': { cogs: 4256927127, netSales: 4809880468, ratio: 4256927127 / 4809880468 },
+    '2026-08': { cogs: 664377673, netSales: 751906888, ratio: 664377673 / 751906888 }
+  };
+
+  if (reqQuery?.fromDate || reqQuery?.date) {
+    const fStr = String(reqQuery.fromDate || reqQuery.date).split('T')[0].trim();
+    const tStr = String(reqQuery.toDate || reqQuery.fromDate || reqQuery.date).split('T')[0].trim();
+    const monthKey = fStr.slice(0, 7);
+
+    if (fStr === '2026-08-01' && tStr === '2026-08-01') {
+      netCogs = 109518823;
+    } else if (kiotvietMonthlyCogsMap[monthKey]) {
+      const mapped = kiotvietMonthlyCogsMap[monthKey];
+      if (fStr.endsWith('-01') && (tStr.endsWith('-28') || tStr.endsWith('-29') || tStr.endsWith('-30') || tStr.endsWith('-31') || (monthKey === '2026-08' && tStr.endsWith('-05')))) {
+        netCogs = mapped.cogs;
+      } else if (netSales > 0) {
+        netCogs = Math.round(netSales * mapped.ratio);
+      }
+    }
+  }
+
+  const grossProfit = netSales - netCogs;
+
+  const operatingExpenses = cashbook
+    .filter((c: any) => c.type === 'EXPENSE' && (c.isBusinessExpense === true || c.is_business_expense === true))
+    .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+
+  const otherIncome = cashbook
+    .filter((c: any) => c.type === 'INCOME' && (c.isBusinessExpense === true || c.is_business_expense === true) && c.groupName !== 'Thu tiền khách hàng')
+    .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+
+  const operatingProfit = grossProfit - operatingExpenses;
+  const otherExpenses = 0;
+  const netProfit = operatingProfit + otherIncome - otherExpenses;
+
+  return {
+    orders,
+    returns,
+    cashbook,
+    orderCount: orders.length,
+    returnCount: returns.length,
+    grossSales,
+    returnSales,
+    orderDiscounts,
+    totalDeductions,
+    netSales,
+    netCogs,
+    grossProfit,
+    operatingExpenses,
+    otherIncome,
+    operatingProfit,
+    netProfit
+  };
+}
+
 export const reportController = {
   // GET /api/reports/end-of-day
   endOfDay: async (req: Request, res: Response, next: NextFunction) => {
@@ -279,97 +370,6 @@ export const reportController = {
           where: { tenantId, createdAt: { gte: startDate, lte: endDate } }
         })
       ]);
-
-export function computePeriodFinancialMetrics(rawOrders: any[], rawReturns: any[], rawCashbook: any[], reqQuery: any) {
-  const orders = filterByWorkingHoursDateRange(rawOrders, reqQuery);
-  const returns = filterByWorkingHoursDateRange(rawReturns, reqQuery);
-  const cashbook = filterByWorkingHoursDateRange(rawCashbook, reqQuery);
-
-  const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
-  const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total || 0), 0);
-  const orderDiscounts = orders.reduce((sum: number, o: any) => sum + Number(o.discount || 0), 0);
-  const totalDeductions = orderDiscounts + returnSales;
-  const netSales = grossSales - totalDeductions;
-
-  let cogsSales = 0;
-  orders.forEach((o: any) => {
-    (o.items || []).forEach((item: any) => {
-      const costUnit = Number(item.costPrice) > 0 ? Number(item.costPrice) : Number(item.product?.costPrice || item.product?.cost_price || 0);
-      cogsSales += costUnit * Number(item.quantity || 0);
-    });
-  });
-
-  let cogsReturns = 0;
-  returns.forEach((r: any) => {
-    (r.items || []).forEach((item: any) => {
-      const costUnit = Number(item.costPrice) > 0 ? Number(item.costPrice) : Number(item.product?.costPrice || item.product?.cost_price || 0);
-      cogsReturns += costUnit * Number(item.quantity || 0);
-    });
-  });
-
-  let netCogs = Math.max(0, cogsSales - cogsReturns);
-
-  const kiotvietMonthlyCogsMap: Record<string, { cogs: number; netSales: number; ratio: number }> = {
-    '2026-01': { cogs: 3863377446, netSales: 4319136627, ratio: 3863377446 / 4319136627 },
-    '2026-02': { cogs: 2952602479, netSales: 3270025391, ratio: 2952602479 / 3270025391 },
-    '2026-03': { cogs: 3346413728, netSales: 3742164419, ratio: 3346413728 / 3742164419 },
-    '2026-04': { cogs: 3492851418, netSales: 3896466331, ratio: 3492851418 / 3896466331 },
-    '2026-05': { cogs: 3823297892, netSales: 4303151766, ratio: 3823297892 / 4303151766 },
-    '2026-06': { cogs: 3998665464, netSales: 4543967619, ratio: 3998665464 / 4543967619 },
-    '2026-07': { cogs: 4256927127, netSales: 4809880468, ratio: 4256927127 / 4809880468 },
-    '2026-08': { cogs: 664377673, netSales: 751906888, ratio: 664377673 / 751906888 }
-  };
-
-  if (reqQuery?.fromDate || reqQuery?.date) {
-    const fStr = String(reqQuery.fromDate || reqQuery.date).split('T')[0].trim();
-    const tStr = String(reqQuery.toDate || reqQuery.fromDate || reqQuery.date).split('T')[0].trim();
-    const monthKey = fStr.slice(0, 7);
-
-    if (fStr === '2026-08-01' && tStr === '2026-08-01') {
-      netCogs = 109518823;
-    } else if (kiotvietMonthlyCogsMap[monthKey]) {
-      const mapped = kiotvietMonthlyCogsMap[monthKey];
-      if (fStr.endsWith('-01') && (tStr.endsWith('-28') || tStr.endsWith('-29') || tStr.endsWith('-30') || tStr.endsWith('-31') || (monthKey === '2026-08' && tStr.endsWith('-05')))) {
-        netCogs = mapped.cogs;
-      } else if (netSales > 0) {
-        netCogs = Math.round(netSales * mapped.ratio);
-      }
-    }
-  }
-
-  const grossProfit = netSales - netCogs;
-
-  const operatingExpenses = cashbook
-    .filter((c: any) => c.type === 'EXPENSE' && (c.isBusinessExpense === true || c.is_business_expense === true))
-    .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
-
-  const otherIncome = cashbook
-    .filter((c: any) => c.type === 'INCOME' && (c.isBusinessExpense === true || c.is_business_expense === true) && c.groupName !== 'Thu tiền khách hàng')
-    .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
-
-  const operatingProfit = grossProfit - operatingExpenses;
-  const otherExpenses = 0;
-  const netProfit = operatingProfit + otherIncome - otherExpenses;
-
-  return {
-    orders,
-    returns,
-    cashbook,
-    orderCount: orders.length,
-    returnCount: returns.length,
-    grossSales,
-    returnSales,
-    orderDiscounts,
-    totalDeductions,
-    netSales,
-    netCogs,
-    grossProfit,
-    operatingExpenses,
-    otherIncome,
-    operatingProfit,
-    netProfit
-  };
-}
 
       const metrics = computePeriodFinancialMetrics(rawOrders, rawReturns, rawCashbook, req.query);
 
