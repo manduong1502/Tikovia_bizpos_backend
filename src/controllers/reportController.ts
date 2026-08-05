@@ -58,6 +58,67 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
   return { startDate, endDate };
 }
 
+function filterByWorkingHoursDateRange<T extends { createdAt: Date | string }>(items: T[], reqQuery: any): T[] {
+  const { date, fromDate, toDate } = reqQuery;
+  const fStr = fromDate || date;
+  const tStr = toDate || date;
+
+  if (!fStr && !tStr) return items;
+
+  const getYMD = (dateInput: Date | string): string => {
+    if (!dateInput) return '';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '';
+
+    let adjusted = d;
+    const currentHours = d.getHours();
+
+    if (currentHours < 7 || currentHours > 18) {
+      const minus7 = new Date(d.getTime() - 7 * 3600 * 1000);
+      const minus7Hours = minus7.getHours();
+
+      if (minus7Hours >= 7 && minus7Hours <= 18) {
+        adjusted = minus7;
+      } else {
+        const plus7 = new Date(d.getTime() + 7 * 3600 * 1000);
+        const plus7Hours = plus7.getHours();
+        if (plus7Hours >= 7 && plus7Hours <= 18) {
+          adjusted = plus7;
+        } else {
+          const clampedHours = currentHours < 7 ? 7 + (currentHours % 11) : (7 + ((currentHours - 18) % 11));
+          adjusted = new Date(d);
+          adjusted.setHours(clampedHours);
+        }
+      }
+    }
+
+    const day = String(adjusted.getDate()).padStart(2, '0');
+    const month = String(adjusted.getMonth() + 1).padStart(2, '0');
+    const year = adjusted.getFullYear();
+    return `${year}-${month}-${day}`;
+  };
+
+  const cleanYMD = (str: string): string => {
+    if (!str) return '';
+    const clean = str.split('T')[0].trim();
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+    return clean;
+  };
+
+  const startYMD = cleanYMD(String(fStr));
+  const endYMD = cleanYMD(String(tStr || fStr));
+
+  return items.filter(item => {
+    const ymd = getYMD(item.createdAt);
+    if (startYMD && ymd < startYMD) return false;
+    if (endYMD && ymd > endYMD) return false;
+    return true;
+  });
+}
+
 export const reportController = {
   // GET /api/reports/end-of-day
   endOfDay: async (req: Request, res: Response, next: NextFunction) => {
@@ -65,7 +126,7 @@ export const reportController = {
       const tenantId = (req as any).tenant!.id;
       const { startDate, endDate } = parseReportDateRange(req.query);
 
-      const [orders, returns, cashbook] = await Promise.all([
+      const [rawOrders, rawReturns, rawCashbook] = await Promise.all([
         prisma.order.findMany({
           where: { 
             tenantId,
@@ -96,6 +157,10 @@ export const reportController = {
         })
       ]);
 
+      const orders = filterByWorkingHoursDateRange(rawOrders, req.query);
+      const returns = filterByWorkingHoursDateRange(rawReturns, req.query);
+      const cashbook = filterByWorkingHoursDateRange(rawCashbook, req.query);
+
       const totalSales = orders.reduce((sum: number, o: any) => sum + Number(o.total), 0);
       const totalPaid = orders.reduce((sum: number, o: any) => sum + Number(o.paid), 0);
       const totalReturns = returns.reduce((sum: number, r: any) => sum + Number(r.total), 0);
@@ -104,7 +169,6 @@ export const reportController = {
       const income = cashbook.filter((c: any) => c.type === 'INCOME').reduce((sum: number, c: any) => sum + Number(c.amount), 0);
       const expense = cashbook.filter((c: any) => c.type === 'EXPENSE').reduce((sum: number, c: any) => sum + Number(c.amount), 0);
 
-      // Map orders to KiotViet style transaction report details
       const FRIENDLY_PAYMENT_METHODS: Record<string, string> = {
         CASH: 'Tiền mặt',
         CARD: 'Quẹt thẻ',
@@ -185,13 +249,12 @@ export const reportController = {
     }
   },
 
-  // GET /api/reports/financial (Báo cáo Kết quả hoạt động kinh doanh chuẩn KiotViet)
   financial: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
       const { startDate, endDate } = parseReportDateRange(req.query);
 
-      const [orders, returns, cashbook] = await Promise.all([
+      const [rawOrders, rawReturns, rawCashbook] = await Promise.all([
         prisma.order.findMany({
           where: {
             tenantId,
@@ -213,92 +276,63 @@ export const reportController = {
           }
         }),
         prisma.cashbookEntry.findMany({
-          where: {
-            tenantId,
-            createdAt: { gte: startDate, lte: endDate },
-            isAccounting: true,
-            status: { not: 'cancelled' }
-          }
+          where: { tenantId, createdAt: { gte: startDate, lte: endDate } }
         })
       ]);
 
-      let grossRevenue = 0;
-      let orderDiscounts = 0;
-      let soldCostPrice = 0;
+      const orders = filterByWorkingHoursDateRange(rawOrders, req.query);
+      const returns = filterByWorkingHoursDateRange(rawReturns, req.query);
+      const cashbook = filterByWorkingHoursDateRange(rawCashbook, req.query);
 
+      const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total), 0);
+      const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total), 0);
+      const netSales = grossSales - returnSales;
+
+      let cogsSales = 0;
       orders.forEach((o: any) => {
-        const orderTotal = Number(o.total || 0);
-        const discountVal = Number(o.discount || 0);
-        grossRevenue += (orderTotal + discountVal);
-        orderDiscounts += discountVal;
-
         (o.items || []).forEach((item: any) => {
-          const cost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
-          soldCostPrice += cost * Number(item.quantity || 0);
+          const costUnit = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
+          cogsSales += costUnit * Number(item.quantity || 0);
         });
       });
 
-      let returnTotalVal = 0;
-      let returnCostPrice = 0;
-
+      let cogsReturns = 0;
       returns.forEach((r: any) => {
-        returnTotalVal += Number(r.total || 0);
         (r.items || []).forEach((item: any) => {
-          const cost = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
-          returnCostPrice += cost * Number(item.quantity || 0);
+          const costUnit = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
+          cogsReturns += costUnit * Number(item.quantity || 0);
         });
       });
 
-      const totalDeductions = returnTotalVal + orderDiscounts;
-      const netRevenue = grossRevenue - totalDeductions;
-      const cogs = soldCostPrice - returnCostPrice;
-      const grossProfit = netRevenue - cogs;
-
-      const isSupplierPayment = (c: any) => {
-        if (c.supplierId || c.partnerType === 'supplier') return true;
-        const cat = (c.category || '').toLowerCase();
-        if (cat.includes('nhà cung cấp') || cat.includes('ncc') || cat.includes('trả nợ') || cat.includes('tiền trả ncc')) return true;
-        return false;
-      };
-
-      const operatingExpenses = cashbook
-        .filter((c: any) => c.type === 'EXPENSE' && !isSupplierPayment(c) && c.category !== 'Chi phí khác')
-        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
-
-      const operatingProfit = grossProfit - operatingExpenses;
+      const netCogs = cogsSales - cogsReturns;
+      const grossProfit = netSales - netCogs;
 
       const otherIncome = cashbook
-        .filter((c: any) => c.type === 'INCOME' && c.category === 'Thu nhập khác')
-        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+        .filter((c: any) => c.type === 'INCOME')
+        .reduce((sum: number, c: any) => sum + Number(c.amount), 0);
 
-      const otherExpenses = cashbook
-        .filter((c: any) => c.type === 'EXPENSE' && c.category === 'Chi phí khác')
-        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+      const operatingExpenses = cashbook
+        .filter((c: any) => c.type === 'EXPENSE')
+        .reduce((sum: number, c: any) => sum + Number(c.amount), 0);
 
-      const netProfit = operatingProfit + otherIncome - otherExpenses;
+      const netProfit = grossProfit + otherIncome - operatingExpenses;
 
       res.json({
-        dateRange: { from: startDate, to: endDate },
-        grossRevenue,
-        totalDeductions,
-        orderDiscounts,
-        returnTotalVal,
-        netRevenue,
-        cogs,
+        grossSales,
+        discounts: 0,
+        returnSales,
+        netSales,
+        netCogs,
         grossProfit,
-        operatingExpenses,
-        operatingProfit,
         otherIncome,
-        otherExpenses,
-        netProfit,
-        profitMargin: netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0
+        operatingExpenses,
+        netProfit
       });
     } catch (error) {
       next(error);
     }
   },
 
-  // GET /api/reports/sales
   sales: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
@@ -307,7 +341,7 @@ export const reportController = {
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
 
-      const [orders, returns] = await Promise.all([
+      const [rawOrders, rawReturns] = await Promise.all([
         prisma.order.findMany({
           where: { tenantId, createdAt: { gte: startDate }, status: { not: 'CANCELLED' } },
           include: { items: { include: { product: true } } }
@@ -317,6 +351,9 @@ export const reportController = {
           include: { items: { include: { product: true } } }
         })
       ]);
+
+      const orders = filterByWorkingHoursDateRange(rawOrders, req.query);
+      const returns = filterByWorkingHoursDateRange(rawReturns, req.query);
 
       const salesByDate: Record<string, { revenue: number; cogs: number; profit: number; count: number }> = {};
       
@@ -368,35 +405,38 @@ export const reportController = {
     }
   },
 
-  // GET /api/reports/products (Products sales report)
   products: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
       const { startDate, endDate } = parseReportDateRange(req.query);
 
-      const orders = await prisma.order.findMany({
-        where: { 
-          tenantId,
-          createdAt: { gte: startDate, lte: endDate },
-          status: { not: 'CANCELLED' }
-        },
-        include: {
-          items: {
-            include: { product: { select: { id: true, name: true, sku: true, unit: true, categoryId: true, costPrice: true } } }
+      const [rawOrders, rawReturns] = await Promise.all([
+        prisma.order.findMany({
+          where: { 
+            tenantId,
+            createdAt: { gte: startDate, lte: endDate },
+            status: { not: 'CANCELLED' }
+          },
+          include: {
+            items: {
+              include: { product: { select: { id: true, name: true, sku: true, unit: true, categoryId: true, costPrice: true } } }
+            }
           }
-        }
-      });
+        }),
+        prisma.return.findMany({
+          where: { 
+            tenantId,
+            createdAt: { gte: startDate, lte: endDate },
+            status: 'COMPLETED' 
+          },
+          include: {
+            items: { include: { product: true } }
+          }
+        })
+      ]);
 
-      const returns = await prisma.return.findMany({
-        where: { 
-          tenantId,
-          createdAt: { gte: startDate, lte: endDate },
-          status: 'COMPLETED' 
-        },
-        include: {
-          items: { include: { product: true } }
-        }
-      });
+      const orders = filterByWorkingHoursDateRange(rawOrders, req.query);
+      const returns = filterByWorkingHoursDateRange(rawReturns, req.query);
 
       const productMap: Record<number, any> = {};
 
@@ -451,35 +491,38 @@ export const reportController = {
     }
   },
 
-  // Báo cáo khách hàng
   getCustomers: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
       const { startDate, endDate } = parseReportDateRange(req.query);
 
-      const orders = await prisma.order.findMany({
-        where: {
-          tenantId,
-          createdAt: { gte: startDate, lte: endDate },
-          status: { not: 'CANCELLED' },
-          customerId: { not: null }
-        },
-        include: {
-          customer: { select: { id: true, name: true, phone: true, code: true } }
-        }
-      });
+      const [rawOrders, rawReturns] = await Promise.all([
+        prisma.order.findMany({
+          where: {
+            tenantId,
+            createdAt: { gte: startDate, lte: endDate },
+            status: { not: 'CANCELLED' },
+            customerId: { not: null }
+          },
+          include: {
+            customer: { select: { id: true, name: true, phone: true, code: true } }
+          }
+        }),
+        prisma.return.findMany({
+          where: { 
+            tenantId,
+            createdAt: { gte: startDate, lte: endDate },
+            status: 'COMPLETED',
+            customerId: { not: null }
+          },
+          include: {
+            customer: { select: { id: true, name: true, phone: true, code: true } }
+          }
+        })
+      ]);
 
-      const returns = await prisma.return.findMany({
-        where: { 
-          tenantId,
-          createdAt: { gte: startDate, lte: endDate },
-          status: 'COMPLETED',
-          customerId: { not: null }
-        },
-        include: {
-          customer: { select: { id: true, name: true, phone: true, code: true } }
-        }
-      });
+      const orders = filterByWorkingHoursDateRange(rawOrders, req.query);
+      const returns = filterByWorkingHoursDateRange(rawReturns, req.query);
 
       const customerMap: Record<number, any> = {};
 
