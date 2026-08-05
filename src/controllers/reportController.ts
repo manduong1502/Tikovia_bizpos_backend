@@ -1,3 +1,6 @@
+import { Request, Response, NextFunction } from 'express';
+import prisma from '../config/database';
+
 function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date } {
   let startDate: Date;
   let endDate: Date;
