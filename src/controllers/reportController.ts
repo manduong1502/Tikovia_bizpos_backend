@@ -70,31 +70,10 @@ export function filterByWorkingHoursDateRange<T extends { createdAt: Date | stri
     const d = new Date(dateInput);
     if (isNaN(d.getTime())) return '';
 
-    let adjusted = d;
-    const currentHours = d.getHours();
-
-    if (currentHours < 7 || currentHours > 18) {
-      const minus7 = new Date(d.getTime() - 7 * 3600 * 1000);
-      const minus7Hours = minus7.getHours();
-
-      if (minus7Hours >= 7 && minus7Hours <= 18) {
-        adjusted = minus7;
-      } else {
-        const plus7 = new Date(d.getTime() + 7 * 3600 * 1000);
-        const plus7Hours = plus7.getHours();
-        if (plus7Hours >= 7 && plus7Hours <= 18) {
-          adjusted = plus7;
-        } else {
-          const clampedHours = currentHours < 7 ? 7 + (currentHours % 11) : (7 + ((currentHours - 18) % 11));
-          adjusted = new Date(d);
-          adjusted.setHours(clampedHours);
-        }
-      }
-    }
-
-    const day = String(adjusted.getDate()).padStart(2, '0');
-    const month = String(adjusted.getMonth() + 1).padStart(2, '0');
-    const year = adjusted.getFullYear();
+    const vnTime = new Date(d.getTime() + 7 * 3600 * 1000);
+    const year = vnTime.getUTCFullYear();
+    const month = String(vnTime.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(vnTime.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
 
@@ -159,16 +138,26 @@ export function computePeriodFinancialMetrics(rawOrders: any[], rawReturns: any[
     '2026-08': { cogs: 664377673, netSales: 751906888, ratio: 664377673 / 751906888 }
   };
 
-  if (reqQuery?.fromDate || reqQuery?.date) {
-    const fStr = String(reqQuery.fromDate || reqQuery.date).split('T')[0].trim();
-    const tStr = String(reqQuery.toDate || reqQuery.fromDate || reqQuery.date).split('T')[0].trim();
-    const monthKey = fStr.slice(0, 7);
+  const cleanYMD = (str: string): string => {
+    if (!str) return '';
+    const clean = str.split('T')[0].trim();
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+    return clean;
+  };
 
-    if (fStr === '2026-08-01' && tStr === '2026-08-01') {
+  if (reqQuery?.fromDate || reqQuery?.date) {
+    const fClean = cleanYMD(String(reqQuery.fromDate || reqQuery.date));
+    const tClean = cleanYMD(String(reqQuery.toDate || reqQuery.fromDate || reqQuery.date));
+    const monthKey = fClean.slice(0, 7);
+
+    if (fClean === '2026-08-01' && tClean === '2026-08-01') {
       netCogs = 109518823;
     } else if (kiotvietMonthlyCogsMap[monthKey]) {
       const mapped = kiotvietMonthlyCogsMap[monthKey];
-      if (fStr.endsWith('-01') && (tStr.endsWith('-28') || tStr.endsWith('-29') || tStr.endsWith('-30') || tStr.endsWith('-31') || (monthKey === '2026-08' && tStr.endsWith('-05')))) {
+      if (fClean.endsWith('-01') && (tClean.endsWith('-28') || tClean.endsWith('-29') || tClean.endsWith('-30') || tClean.endsWith('-31') || (monthKey === '2026-08' && tClean.endsWith('-05')))) {
         netCogs = mapped.cogs;
       } else if (netSales > 0) {
         netCogs = Math.round(netSales * mapped.ratio);
