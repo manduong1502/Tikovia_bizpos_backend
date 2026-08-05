@@ -39,13 +39,17 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
   };
 
   if (date) {
-    startDate = parseYMD(String(date), false);
-    endDate = parseYMD(String(date), true);
+    const s = parseYMD(String(date), false);
+    const e = parseYMD(String(date), true);
+    startDate = new Date(s.getTime() - 24 * 3600 * 1000);
+    endDate = new Date(e.getTime() + 24 * 3600 * 1000);
   } else if (fromDate || toDate) {
     const fStr = fromDate ? String(fromDate) : '';
     const tStr = toDate ? String(toDate) : (fromDate ? String(fromDate) : '');
-    startDate = parseYMD(fStr, false);
-    endDate = parseYMD(tStr, true);
+    const s = parseYMD(fStr, false);
+    const e = parseYMD(tStr, true);
+    startDate = s.getTime() > 0 ? new Date(s.getTime() - 24 * 3600 * 1000) : new Date(0);
+    endDate = new Date(e.getTime() + 24 * 3600 * 1000);
   } else {
     startDate = new Date(0);
     endDate = new Date();
