@@ -33,7 +33,7 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
       const sy = String(y).padStart(4, '0');
       const sm = String(m).padStart(2, '0');
       const sd = String(d).padStart(2, '0');
-      return isEnd ? new Date(`${sy}-${sm}-${sd}T23:59:59.999Z`) : new Date(`${sy}-${sm}-${sd}T00:00:00.000Z`);
+      return isEnd ? new Date(`${sy}-${sm}-${sd}T23:59:59.999+07:00`) : new Date(`${sy}-${sm}-${sd}T00:00:00.000+07:00`);
     }
     return isEnd ? new Date() : new Date(0);
   };

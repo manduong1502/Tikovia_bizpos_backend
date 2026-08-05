@@ -184,11 +184,13 @@ export const orderController = {
       if (from || to) {
         where.createdAt = {};
         if (from) {
-          const dFrom = new Date(from);
+          const fromStr = from.includes('+') || from.endsWith('Z') ? from : (from.includes('T') ? `${from}+07:00` : `${from}T00:00:00.000+07:00`);
+          const dFrom = new Date(fromStr);
           if (!isNaN(dFrom.getTime())) where.createdAt.gte = dFrom;
         }
         if (to) {
-          const dTo = to.includes('T') ? new Date(to) : new Date(to + 'T23:59:59.999Z');
+          const toStr = to.includes('+') || to.endsWith('Z') ? to : (to.includes('T') ? `${to}+07:00` : `${to}T23:59:59.999+07:00`);
+          const dTo = new Date(toStr);
           if (!isNaN(dTo.getTime())) where.createdAt.lte = dTo;
         }
       }
