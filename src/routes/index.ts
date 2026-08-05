@@ -57,6 +57,7 @@ router.delete('/orders/:id', authenticate, orderController.delete);
 
 // ─── Suppliers ───
 router.get('/suppliers', authenticate, supplierController.getAll);
+router.get('/suppliers/:id/debt-ledger', authenticate, supplierController.getDebtLedger);
 router.post('/suppliers/import', authenticate, supplierController.importExcel);
 router.post('/suppliers', authenticate, supplierController.create);
 router.put('/suppliers/:id', authenticate, supplierController.update);

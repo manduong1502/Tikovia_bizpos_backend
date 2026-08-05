@@ -258,4 +258,49 @@ export const supplierController = {
       next(error);
     }
   },
+
+  getDebtLedger: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = (req as any).tenant!.id;
+      const id = Number(req.params.id);
+
+      const supplier = await prisma.supplier.findFirst({
+        where: { id, tenantId },
+        select: { id: true, code: true, name: true, totalDebt: true }
+      });
+
+      if (!supplier) {
+        return res.status(404).json({ message: 'Không tìm thấy nhà cung cấp' });
+      }
+
+      const rawLedgers: any = await prisma.$queryRaw`
+        SELECT "code", "type", "date", "amount"
+        FROM "SupplierDebtLedger"
+        WHERE "tenantId" = ${tenantId} AND ("supplierId" = ${id} OR "supplierCode" = ${supplier.code})
+        ORDER BY "date" DESC, "id" DESC;
+      `;
+
+      const list = Array.isArray(rawLedgers) ? rawLedgers : [];
+
+      let tempDebt = Number(supplier.totalDebt || 0);
+      const ledger = list.map((item: any) => {
+        const amt = Number(item.amount || 0);
+        const runningDebt = tempDebt;
+        tempDebt -= amt;
+        return {
+          code: item.code,
+          type: item.code.startsWith('PN') ? 'import' : (item.code.startsWith('PC') || item.code.startsWith('TT') ? 'payment' : (item.code.startsWith('THN') ? 'return' : 'balance')),
+          typeName: item.type || (item.code.startsWith('PN') ? 'Nhập hàng' : (item.code.startsWith('PC') ? 'Thanh toán' : 'Giao dịch')),
+          date: item.date,
+          amount: amt,
+          debt: amt,
+          runningDebt
+        };
+      });
+
+      res.json(ledger);
+    } catch (error) {
+      next(error);
+    }
+  },
 };
