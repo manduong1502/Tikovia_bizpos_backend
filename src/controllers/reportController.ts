@@ -1,36 +1,60 @@
-import { Request, Response, NextFunction } from 'express';
-import prisma from '../config/database';
+function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date } {
+  let startDate: Date;
+  let endDate: Date;
+
+  const { date, fromDate, toDate } = reqQuery;
+
+  if (date) {
+    const str = String(date).trim();
+    let y = 0, m = 0, d = 0;
+    if (str.includes('/')) {
+      const parts = str.split('/');
+      d = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10);
+      y = parseInt(parts[2], 10);
+    } else if (str.includes('-')) {
+      const parts = str.split('-');
+      if (parts[0].length === 4) {
+        y = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10);
+        d = parseInt(parts[2], 10);
+      } else {
+        d = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10);
+        y = parseInt(parts[2], 10);
+      }
+    }
+    if (y && m && d) {
+      const sy = String(y).padStart(4, '0');
+      const sm = String(m).padStart(2, '0');
+      const sd = String(d).padStart(2, '0');
+      startDate = new Date(`${sy}-${sm}-${sd}T00:00:00.000+07:00`);
+      endDate = new Date(`${sy}-${sm}-${sd}T23:59:59.999+07:00`);
+    } else {
+      const p = new Date(str);
+      startDate = new Date(p.getFullYear(), p.getMonth(), p.getDate(), 0, 0, 0, 0);
+      endDate = new Date(p.getFullYear(), p.getMonth(), p.getDate(), 23, 59, 59, 999);
+    }
+  } else if (fromDate || toDate) {
+    const todayYMD = new Date().toISOString().split('T')[0];
+    const fStr = fromDate ? String(fromDate).split('T')[0].trim() : '1970-01-01';
+    const tStr = toDate ? String(toDate).split('T')[0].trim() : todayYMD;
+    startDate = new Date(`${fStr}T00:00:00.000+07:00`);
+    endDate = new Date(`${tStr}T23:59:59.999+07:00`);
+  } else {
+    startDate = new Date(0);
+    endDate = new Date();
+  }
+
+  return { startDate, endDate };
+}
 
 export const reportController = {
   // GET /api/reports/end-of-day
   endOfDay: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
-      let startDate = new Date();
-      let endDate = new Date();
-
-      if (req.query.date) {
-        const dateStr = req.query.date as string;
-        let parsedDate: Date;
-        if (dateStr.includes('/')) {
-          const [d, m, y] = dateStr.split('/');
-          parsedDate = new Date(Number(y), Number(m) - 1, Number(d));
-        } else {
-          parsedDate = new Date(dateStr);
-        }
-        startDate = new Date(parsedDate);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(parsedDate);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (req.query.fromDate && req.query.toDate) {
-        startDate = new Date(req.query.fromDate as string);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(req.query.toDate as string);
-        endDate.setHours(23, 59, 59, 999);
-      } else {
-        startDate.setHours(0, 0, 0, 0);
-        endDate.setHours(23, 59, 59, 999);
-      }
+      const { startDate, endDate } = parseReportDateRange(req.query);
 
       const [orders, returns, cashbook] = await Promise.all([
         prisma.order.findMany({
@@ -156,32 +180,7 @@ export const reportController = {
   financial: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
-      let startDate = new Date();
-      let endDate = new Date();
-
-      if (req.query.date) {
-        const dateStr = req.query.date as string;
-        let parsedDate: Date;
-        if (dateStr.includes('/')) {
-          const [d, m, y] = dateStr.split('/');
-          parsedDate = new Date(Number(y), Number(m) - 1, Number(d));
-        } else {
-          parsedDate = new Date(dateStr);
-        }
-        startDate = new Date(parsedDate);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(parsedDate);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (req.query.fromDate && req.query.toDate) {
-        startDate = new Date(req.query.fromDate as string);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(req.query.toDate as string);
-        endDate.setHours(23, 59, 59, 999);
-      } else {
-        startDate = new Date(0);
-        endDate = new Date();
-        endDate.setHours(23, 59, 59, 999);
-      }
+      const { startDate, endDate } = parseReportDateRange(req.query);
 
       const [orders, returns, cashbook] = await Promise.all([
         prisma.order.findMany({
@@ -364,31 +363,7 @@ export const reportController = {
   products: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
-      let startDate = new Date();
-      let endDate = new Date();
-
-      if (req.query.date) {
-        const dateStr = req.query.date as string;
-        let parsedDate: Date;
-        if (dateStr.includes('/')) {
-          const [d, m, y] = dateStr.split('/');
-          parsedDate = new Date(Number(y), Number(m) - 1, Number(d));
-        } else {
-          parsedDate = new Date(dateStr);
-        }
-        startDate = new Date(parsedDate);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(parsedDate);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (req.query.fromDate && req.query.toDate) {
-        startDate = new Date(req.query.fromDate as string);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(req.query.toDate as string);
-        endDate.setHours(23, 59, 59, 999);
-      } else {
-        startDate.setHours(0, 0, 0, 0);
-        endDate.setHours(23, 59, 59, 999);
-      }
+      const { startDate, endDate } = parseReportDateRange(req.query);
 
       const orders = await prisma.order.findMany({
         where: { 
@@ -471,15 +446,7 @@ export const reportController = {
   getCustomers: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
-      const { fromDate, toDate } = req.query;
-      let startDate = new Date(0);
-      let endDate = new Date();
-
-      if (fromDate) startDate = new Date(fromDate as string);
-      if (toDate) {
-        endDate = new Date(toDate as string);
-        endDate.setHours(23, 59, 59, 999);
-      }
+      const { startDate, endDate } = parseReportDateRange(req.query);
 
       const orders = await prisma.order.findMany({
         where: {
