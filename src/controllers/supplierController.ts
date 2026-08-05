@@ -276,7 +276,7 @@ export const supplierController = {
       const rawLedgers: any = await prisma.$queryRaw`
         SELECT "code", "type", "date", "amount"
         FROM "SupplierDebtLedger"
-        WHERE "tenantId" = ${tenantId} AND ("supplierId" = ${id} OR "supplierCode" = ${supplier.code})
+        WHERE "tenantId" = ${tenantId} AND ("supplierId" = ${id} OR "supplierCode" = ${supplier.code} OR "supplierName" = ${supplier.name})
         ORDER BY "date" DESC, "id" DESC;
       `;
 
