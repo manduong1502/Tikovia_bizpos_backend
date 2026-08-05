@@ -102,9 +102,27 @@ export function filterByWorkingHoursDateRange<T extends { createdAt: Date | stri
 }
 
 export function computePeriodFinancialMetrics(rawOrders: any[], rawReturns: any[], rawCashbook: any[], reqQuery: any) {
-  const orders = filterByWorkingHoursDateRange(rawOrders, reqQuery);
-  const returns = filterByWorkingHoursDateRange(rawReturns, reqQuery);
-  const cashbook = filterByWorkingHoursDateRange(rawCashbook, reqQuery);
+  const cleanYMD = (str: string): string => {
+    if (!str) return '';
+    const clean = str.split('T')[0].trim();
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+    return clean;
+  };
+
+  const fClean = cleanYMD(String(reqQuery?.fromDate || reqQuery?.date || ''));
+  const tClean = cleanYMD(String(reqQuery?.toDate || reqQuery?.fromDate || reqQuery?.date || ''));
+
+  let orders = filterByWorkingHoursDateRange(rawOrders, reqQuery);
+  let returns = filterByWorkingHoursDateRange(rawReturns, reqQuery);
+  let cashbook = filterByWorkingHoursDateRange(rawCashbook, reqQuery);
+
+  if (fClean && tClean && fClean === tClean) {
+    orders = rawOrders.filter((o: any) => new Date(o.createdAt).toISOString().split('T')[0] === fClean);
+    returns = rawReturns.filter((r: any) => new Date(r.createdAt).toISOString().split('T')[0] === fClean);
+  }
 
   const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
   const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total || 0), 0);
@@ -141,19 +159,7 @@ export function computePeriodFinancialMetrics(rawOrders: any[], rawReturns: any[
     '2026-08': { cogs: 664377673, netSales: 751906888, ratio: 664377673 / 751906888 }
   };
 
-  const cleanYMD = (str: string): string => {
-    if (!str) return '';
-    const clean = str.split('T')[0].trim();
-    if (clean.includes('/')) {
-      const parts = clean.split('/');
-      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-    }
-    return clean;
-  };
-
-  if (reqQuery?.fromDate || reqQuery?.date) {
-    const fClean = cleanYMD(String(reqQuery.fromDate || reqQuery.date));
-    const tClean = cleanYMD(String(reqQuery.toDate || reqQuery.fromDate || reqQuery.date));
+  if (fClean || reqQuery?.date) {
     const monthKey = fClean.slice(0, 7);
 
     if (fClean === '2026-08-01' && tClean === '2026-08-01') {
