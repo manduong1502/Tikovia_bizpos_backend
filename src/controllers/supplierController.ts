@@ -52,7 +52,7 @@ export const supplierController = {
       const enriched = suppliers.map(s => {
         const poSpent = s.purchaseOrders.reduce((sum, po) => sum + Number(po.total || 0), 0);
         const baseSpent = Number(s.totalSpent || 0);
-        const actualSpent = poSpent > 0 ? poSpent : baseSpent;
+        const actualSpent = baseSpent > 0 ? baseSpent : poSpent;
         
         const totalReturn = s.purchaseReturns.reduce((sum, pr) => sum + Number(pr.total || 0), 0);
         const netPurchase = actualSpent - totalReturn;

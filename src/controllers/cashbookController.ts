@@ -5,7 +5,7 @@ import { AuthRequest } from '../middlewares/auth';
 export const cashbookController = {
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const tenantId = (req as any).tenant!.id;
+      const tenantId = Number((req as any).tenant?.id || 1);
       const search = req.query.search as string;
       const type = req.query.type as string; // 'thu', 'chi', 'INCOME', 'EXPENSE'
       const paymentMethod = req.query.paymentMethod as string;
@@ -64,7 +64,31 @@ export const cashbookController = {
 
       if (partnerType && partnerType !== 'Tất cả') {
         if (!customerIdParam) {
-          where.partnerType = partnerType;
+          const ptLower = String(partnerType).toLowerCase();
+          if (ptLower === 'supplier' || ptLower === 'nhà cung cấp' || ptLower === 'ncc') {
+            where.OR = [
+              { partnerType: 'supplier' },
+              { partnerType: 'Supplier' },
+              { partnerType: 'NHÀ CUNG CẤP' },
+              { partnerType: 'Nhà cung cấp' },
+              { partnerType: 'nhà cung cấp' },
+              { supplierId: { not: null } },
+              { code: { startsWith: 'PC' } },
+              { code: { startsWith: 'PCPN' } }
+            ];
+          } else if (ptLower === 'customer' || ptLower === 'khách hàng') {
+            where.OR = [
+              { partnerType: 'customer' },
+              { partnerType: 'Customer' },
+              { partnerType: 'KHÁCH HÀNG' },
+              { partnerType: 'Khách hàng' },
+              { partnerType: 'khách hàng' },
+              { customerId: { not: null } },
+              { code: { startsWith: 'PT' } }
+            ];
+          } else {
+            where.partnerType = partnerType;
+          }
         }
       }
 

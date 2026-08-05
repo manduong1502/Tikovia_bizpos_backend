@@ -92,13 +92,13 @@ export const reportController = {
         })
       ]);
 
-      const totalSales = orders.reduce((sum, o) => sum + Number(o.total), 0);
-      const totalPaid = orders.reduce((sum, o) => sum + Number(o.paid), 0);
-      const totalReturns = returns.reduce((sum, r) => sum + Number(r.total), 0);
-      const totalReturnPaid = returns.reduce((sum, r) => sum + Number(r.paid), 0);
+      const totalSales = orders.reduce((sum: number, o: any) => sum + Number(o.total), 0);
+      const totalPaid = orders.reduce((sum: number, o: any) => sum + Number(o.paid), 0);
+      const totalReturns = returns.reduce((sum: number, r: any) => sum + Number(r.total), 0);
+      const totalReturnPaid = returns.reduce((sum: number, r: any) => sum + Number(r.paid), 0);
       
-      const income = cashbook.filter(c => c.type === 'INCOME').reduce((sum, c) => sum + Number(c.amount), 0);
-      const expense = cashbook.filter(c => c.type === 'EXPENSE').reduce((sum, c) => sum + Number(c.amount), 0);
+      const income = cashbook.filter((c: any) => c.type === 'INCOME').reduce((sum: number, c: any) => sum + Number(c.amount), 0);
+      const expense = cashbook.filter((c: any) => c.type === 'EXPENSE').reduce((sum: number, c: any) => sum + Number(c.amount), 0);
 
       // Map orders to KiotViet style transaction report details
       const FRIENDLY_PAYMENT_METHODS: Record<string, string> = {
