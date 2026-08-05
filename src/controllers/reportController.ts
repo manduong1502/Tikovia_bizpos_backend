@@ -4,8 +4,8 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
 
   const { date, fromDate, toDate } = reqQuery;
 
-  const parseYMD = (str: string, isEnd = false): Date => {
-    if (!str) return isEnd ? new Date() : new Date(0);
+  const getGMT7Bounds = (str: string): { start: Date; end: Date } => {
+    if (!str) return { start: new Date(0), end: new Date() };
     const clean = str.split('T')[0].trim();
     let y = 0, m = 0, d = 0;
     if (clean.includes('/')) {
@@ -27,19 +27,28 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
     }
 
     if (y && m && d) {
-      return isEnd ? new Date(y, m - 1, d, 23, 59, 59, 999) : new Date(y, m - 1, d, 0, 0, 0, 0);
+      const sy = String(y).padStart(4, '0');
+      const sm = String(m).padStart(2, '0');
+      const sd = String(d).padStart(2, '0');
+      return {
+        start: new Date(`${sy}-${sm}-${sd}T00:00:00.000+07:00`),
+        end: new Date(`${sy}-${sm}-${sd}T23:59:59.999+07:00`)
+      };
     }
-    return isEnd ? new Date() : new Date(0);
+    return { start: new Date(0), end: new Date() };
   };
 
   if (date) {
-    startDate = parseYMD(String(date), false);
-    endDate = parseYMD(String(date), true);
+    const bounds = getGMT7Bounds(String(date));
+    startDate = bounds.start;
+    endDate = bounds.end;
   } else if (fromDate || toDate) {
-    const fStr = fromDate ? String(fromDate) : '';
+    const fStr = fromDate ? String(fromDate) : (toDate ? String(toDate) : '');
     const tStr = toDate ? String(toDate) : (fromDate ? String(fromDate) : '');
-    startDate = parseYMD(fStr, false);
-    endDate = parseYMD(tStr, true);
+    const fBounds = getGMT7Bounds(fStr);
+    const tBounds = getGMT7Bounds(tStr);
+    startDate = fBounds.start;
+    endDate = tBounds.end;
   } else {
     startDate = new Date(0);
     endDate = new Date();
