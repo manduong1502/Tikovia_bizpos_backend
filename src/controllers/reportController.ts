@@ -4,16 +4,17 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
 
   const { date, fromDate, toDate } = reqQuery;
 
-  if (date) {
-    const str = String(date).trim();
+  const parseYMD = (str: string, isEnd = false): Date => {
+    if (!str) return isEnd ? new Date() : new Date(0);
+    const clean = str.split('T')[0].trim();
     let y = 0, m = 0, d = 0;
-    if (str.includes('/')) {
-      const parts = str.split('/');
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
       d = parseInt(parts[0], 10);
       m = parseInt(parts[1], 10);
       y = parseInt(parts[2], 10);
-    } else if (str.includes('-')) {
-      const parts = str.split('-');
+    } else if (clean.includes('-')) {
+      const parts = clean.split('-');
       if (parts[0].length === 4) {
         y = parseInt(parts[0], 10);
         m = parseInt(parts[1], 10);
@@ -24,23 +25,21 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
         y = parseInt(parts[2], 10);
       }
     }
+
     if (y && m && d) {
-      const sy = String(y).padStart(4, '0');
-      const sm = String(m).padStart(2, '0');
-      const sd = String(d).padStart(2, '0');
-      startDate = new Date(`${sy}-${sm}-${sd}T00:00:00.000+07:00`);
-      endDate = new Date(`${sy}-${sm}-${sd}T23:59:59.999+07:00`);
-    } else {
-      const p = new Date(str);
-      startDate = new Date(p.getFullYear(), p.getMonth(), p.getDate(), 0, 0, 0, 0);
-      endDate = new Date(p.getFullYear(), p.getMonth(), p.getDate(), 23, 59, 59, 999);
+      return isEnd ? new Date(y, m - 1, d, 23, 59, 59, 999) : new Date(y, m - 1, d, 0, 0, 0, 0);
     }
+    return isEnd ? new Date() : new Date(0);
+  };
+
+  if (date) {
+    startDate = parseYMD(String(date), false);
+    endDate = parseYMD(String(date), true);
   } else if (fromDate || toDate) {
-    const todayYMD = new Date().toISOString().split('T')[0];
-    const fStr = fromDate ? String(fromDate).split('T')[0].trim() : '1970-01-01';
-    const tStr = toDate ? String(toDate).split('T')[0].trim() : todayYMD;
-    startDate = new Date(`${fStr}T00:00:00.000+07:00`);
-    endDate = new Date(`${tStr}T23:59:59.999+07:00`);
+    const fStr = fromDate ? String(fromDate) : '';
+    const tStr = toDate ? String(toDate) : (fromDate ? String(fromDate) : '');
+    startDate = parseYMD(fStr, false);
+    endDate = parseYMD(tStr, true);
   } else {
     startDate = new Date(0);
     endDate = new Date();
