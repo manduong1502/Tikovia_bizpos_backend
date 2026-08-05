@@ -1,30 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
+import { computePeriodFinancialMetrics, filterByWorkingHoursDateRange } from './reportController';
 
 export const dashboardController = {
   get: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      // Date range for this month
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
-      
-      // Date range for previous month
-      const startOfPrevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const endOfPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
-
-      // Vietnam working hours date range for TODAY
-      const vnNow = new Date(new Date().getTime() + (7 * 3600 * 1000));
-      const vnY = vnNow.getUTCFullYear();
-      const vnM = vnNow.getUTCMonth();
-      const vnD = vnNow.getUTCDate();
-      const todayStart = new Date(Date.UTC(vnY, vnM, vnD, 0, 0, 0, 0) - (7 * 3600 * 1000));
-      const todayEnd = new Date(Date.UTC(vnY, vnM, vnD, 23, 59, 59, 999) - (7 * 3600 * 1000));
 
       const timeProd = req.query.timeProd as string || 'Tháng này';
       const timeCust = req.query.timeCust as string || 'Tháng này';
@@ -42,201 +24,109 @@ export const dashboardController = {
         const startOfDay = new Date(Date.UTC(vnYear, vnMonth, vnDate, 0, 0, 0, 0) - (7 * 3600 * 1000));
         const endOfDay = new Date(Date.UTC(vnYear, vnMonth, vnDate, 23, 59, 59, 999) - (7 * 3600 * 1000));
 
-        if (type === 'Hôm nay') {
-          return { start: startOfDay, end: endOfDay };
-        }
-        if (type === 'Hôm qua') {
-          const start = new Date(startOfDay.getTime() - (24 * 3600 * 1000));
-          const end = new Date(endOfDay.getTime() - (24 * 3600 * 1000));
-          return { start, end };
-        }
-        if (type === '7 ngày qua') {
-          const start = new Date(startOfDay.getTime() - (6 * 24 * 3600 * 1000));
-          return { start, end: endOfDay };
-        }
-        if (type === '30 ngày qua') {
-          const start = new Date(startOfDay.getTime() - (29 * 24 * 3600 * 1000));
-          return { start, end: endOfDay };
-        }
-        if (type === 'Tuần này') {
-          const day = vnTime.getUTCDay();
-          const diff = vnDate - day + (day === 0 ? -6 : 1);
-          const start = new Date(Date.UTC(vnYear, vnMonth, diff, 0, 0, 0, 0) - (7 * 3600 * 1000));
-          return { start, end: endOfDay };
-        }
-        if (type === 'Tuần trước') {
-          const day = vnTime.getUTCDay();
-          const diff = vnDate - day + (day === 0 ? -6 : 1) - 7;
-          const start = new Date(Date.UTC(vnYear, vnMonth, diff, 0, 0, 0, 0) - (7 * 3600 * 1000));
-          const end = new Date(start.getTime() + (7 * 24 * 3600 * 1000) - 1);
-          return { start, end };
-        }
-        if (type === 'Tháng trước') {
-          const start = new Date(Date.UTC(vnYear, vnMonth - 1, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
-          const end = new Date(Date.UTC(vnYear, vnMonth, 0, 23, 59, 59, 999) - (7 * 3600 * 1000));
-          return { start, end };
-        }
-        if (type === 'Quý này') {
-          const quarter = Math.floor(vnMonth / 3);
-          const start = new Date(Date.UTC(vnYear, quarter * 3, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
-          const end = new Date(Date.UTC(vnYear, quarter * 3 + 3, 0, 23, 59, 59, 999) - (7 * 3600 * 1000));
-          return { start, end };
-        }
-        if (type === 'Quý trước') {
-          const quarter = Math.floor(vnMonth / 3) - 1;
-          const start = new Date(Date.UTC(vnYear, quarter * 3, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
-          const end = new Date(Date.UTC(vnYear, quarter * 3 + 3, 0, 23, 59, 59, 999) - (7 * 3600 * 1000));
-          return { start, end };
-        }
-        if (type === 'Năm nay') {
-          const start = new Date(Date.UTC(vnYear, 0, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
-          const end = new Date(Date.UTC(vnYear, 11, 31, 23, 59, 59, 999) - (7 * 3600 * 1000));
-          return { start, end };
-        }
-        if (type === 'Toàn thời gian') {
-          const start = new Date(2000, 0, 1);
-          const end = new Date(2099, 11, 31, 23, 59, 59, 999);
-          return { start, end };
-        }
-        // Default: Tháng này
-        const start = new Date(Date.UTC(vnYear, vnMonth, 1, 0, 0, 0, 0) - (7 * 3600 * 1000));
-        const end = new Date(Date.UTC(vnYear, vnMonth + 1, 0, 23, 59, 59, 999) - (7 * 3600 * 1000));
-        return { start, end };
+        if (type === 'Hôm nay') return { start: startOfDay, end: endOfDay };
+        if (type === 'Hôm qua') return { start: new Date(startOfDay.getTime() - 24 * 3600 * 1000), end: new Date(endOfDay.getTime() - 24 * 3600 * 1000) };
+        if (type === 'Tháng trước') return { start: new Date(Date.UTC(vnYear, vnMonth - 1, 1, 0, 0, 0, 0) - 7 * 3600 * 1000), end: new Date(Date.UTC(vnYear, vnMonth, 0, 23, 59, 59, 999) - 7 * 3600 * 1000) };
+        
+        return { start: new Date(Date.UTC(vnYear, vnMonth, 1, 0, 0, 0, 0) - 7 * 3600 * 1000), end: new Date(Date.UTC(vnYear, vnMonth + 1, 0, 23, 59, 59, 999) - 7 * 3600 * 1000) };
       };
 
       const prodRange = getRange(timeProd);
       const custRange = getRange(timeCust);
 
-      let rangeStart: Date;
-      let rangeEnd: Date;
-      if (dateFrom && dateTo) {
-        rangeStart = new Date(dateFrom);
-        rangeEnd = new Date(dateTo);
-        rangeEnd.setHours(23, 59, 59, 999);
-      } else {
-        const r = getRange(timeRange);
-        rangeStart = r.start;
-        rangeEnd = r.end;
-      }
-
-      // All queries run in parallel for speed, fully scoped by tenantId
+      // Fetch all core raw entities for tenant to compute exact report-aligned metrics
       const [
-        todayReturns,
+        allOrders,
+        allReturns,
+        allCashbook,
         totalProducts,
         lowStockProducts,
         totalCustomers,
         recentOrders,
-        prevMonthRevenueAggr,
         topProductsDb,
-        topCustomersDb,
-        dailyRevenuesDb,
-        periodOrders,
-        periodReturns
+        topCustomersDb
       ] = await Promise.all([
-        // Trả hàng hôm nay
-        prisma.return.count({
-          where: { tenantId, createdAt: { gte: todayStart, lte: todayEnd }, status: 'COMPLETED' },
+        prisma.order.findMany({
+          where: { tenantId, status: { not: 'CANCELLED' } },
+          select: {
+            id: true,
+            total: true,
+            discount: true,
+            createdAt: true,
+            items: { select: { quantity: true, costPrice: true, product: { select: { costPrice: true } } } }
+          }
         }),
-        // Tổng sản phẩm active
+        prisma.return.findMany({
+          where: { tenantId, status: 'COMPLETED' },
+          select: {
+            id: true,
+            total: true,
+            createdAt: true,
+            items: { select: { quantity: true, costPrice: true, product: { select: { costPrice: true } } } }
+          }
+        }),
+        prisma.cashbookEntry.findMany({
+          where: { tenantId },
+          select: { id: true, type: true, amount: true, isBusinessExpense: true, groupName: true, createdAt: true }
+        }),
         prisma.product.count({ where: { tenantId, isActive: true } }),
-        // Sản phẩm sắp hết hàng
-        prisma.product.count({
-          where: { tenantId, isActive: true, stock: { lte: 5 } },
-        }).catch(() => 0),
-        // Tổng khách hàng
+        prisma.product.count({ where: { tenantId, isActive: true, stock: { lte: 5 } } }).catch(() => 0),
         prisma.customer.count({ where: { tenantId } }),
-        // 10 đơn hàng gần nhất
         prisma.order.findMany({
           where: { tenantId },
           take: 10,
           orderBy: { createdAt: 'desc' },
-          include: {
-            customer: { select: { name: true } },
-            user: { select: { fullName: true } },
-          },
+          include: { customer: { select: { name: true } }, user: { select: { fullName: true } } }
         }),
-        // Doanh thu tháng trước
-        prisma.order.aggregate({
-          where: { tenantId, createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, status: { not: 'CANCELLED' } },
-          _sum: { total: true },
-        }),
-        // Top hàng bán chạy
         prisma.orderItem.groupBy({
           by: ['productId'],
           where: { order: { tenantId, createdAt: { gte: prodRange.start, lte: prodRange.end }, status: { not: 'CANCELLED' } } },
           _sum: { quantity: true, total: true },
           orderBy: { _sum: { quantity: 'desc' } },
-          take: 5,
+          take: 5
         }),
-        // Top khách chi tiêu
         prisma.order.groupBy({
           by: ['customerId'],
           where: { tenantId, createdAt: { gte: custRange.start, lte: custRange.end }, status: { not: 'CANCELLED' }, customerId: { not: null } },
           _sum: { total: true },
           _count: { id: true },
           orderBy: { _sum: { total: 'desc' } },
-          take: 5,
-        }),
-        // Doanh thu theo ngày trong tháng này
-        prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: startOfMonth, lte: endOfMonth }, status: { not: 'CANCELLED' } },
-          select: { createdAt: true, total: true }
-        }),
-        // Đơn hàng trong khoảng thời gian được chọn (để tính periodStats)
-        prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: rangeStart, lte: rangeEnd }, status: { not: 'CANCELLED' } },
-          select: { id: true, total: true }
-        }),
-        // Trả hàng trong khoảng thời gian được chọn
-        prisma.return.findMany({
-          where: { tenantId, createdAt: { gte: rangeStart, lte: rangeEnd }, status: 'COMPLETED' },
-          select: { total: true }
-        }),
-        // Hóa đơn phát sinh hôm nay
-        prisma.order.findMany({
-          where: { tenantId, createdAt: { gte: todayStart, lte: todayEnd }, status: { not: 'CANCELLED' } },
-          select: { total: true }
+          take: 5
         })
       ]);
 
-      // Calculate today stats using Vietnam working hours
-      const todayOrdersDb = todayOrdersList || [];
-      const todayOrders = todayOrdersDb.length;
-      const todayRevenueSum = todayOrdersDb.reduce((sum, o) => sum + Number(o.total || 0), 0);
-      const todayReturns = todayReturnsCount || 0;
+      // Calculate Vietnam Today YMD string
+      const vnNowStr = new Date(new Date().getTime() + 7 * 3600 * 1000).toISOString().split('T')[0];
 
-      let monthlyRevenueSum = 0;
+      // 1. Compute TODAY metrics matching Report logic
+      const todayMetrics = computePeriodFinancialMetrics(allOrders, allReturns, allCashbook, { fromDate: vnNowStr, toDate: vnNowStr });
+      
+      // 2. Compute SELECTED PERIOD metrics matching Report logic 100%
+      const periodMetrics = computePeriodFinancialMetrics(allOrders, allReturns, allCashbook, { fromDate: dateFrom, toDate: dateTo, timeRange });
+
+      // 3. Compute THIS MONTH & PREV MONTH metrics matching Report logic
+      const nowVn = new Date(new Date().getTime() + 7 * 3600 * 1000);
+      const currY = nowVn.getUTCFullYear();
+      const currM = String(nowVn.getUTCMonth() + 1).padStart(2, '0');
+      const lastM = String(nowVn.getUTCMonth() === 0 ? 12 : nowVn.getUTCMonth()).padStart(2, '0');
+      const lastY = nowVn.getUTCMonth() === 0 ? currY - 1 : currY;
+
+      const thisMonthMetrics = computePeriodFinancialMetrics(allOrders, allReturns, allCashbook, { fromDate: `${currY}-${currM}-01`, toDate: `${currY}-${currM}-31` });
+      const prevMonthMetrics = computePeriodFinancialMetrics(allOrders, allReturns, allCashbook, { fromDate: `${lastY}-${lastM}-01`, toDate: `${lastY}-${lastM}-31` });
+
+      // Daily breakdown for current month (for chart)
       const dailyRevenuesMap = new Map();
-      dailyRevenuesDb.forEach(order => {
-        const orderDate = new Date(order.createdAt);
-        const orderTotal = Number(order.total || 0);
-
-        monthlyRevenueSum += orderTotal;
-        const day = orderDate.getDate();
-        dailyRevenuesMap.set(day, (dailyRevenuesMap.get(day) || 0) + orderTotal);
+      const currentMonthOrders = filterByWorkingHoursDateRange(allOrders, { fromDate: `${currY}-${currM}-01`, toDate: `${currY}-${currM}-31` });
+      currentMonthOrders.forEach((order: any) => {
+        const d = new Date(order.createdAt).getDate();
+        dailyRevenuesMap.set(d, (dailyRevenuesMap.get(d) || 0) + Number(order.total || 0));
       });
 
-      const daily_revenues = Array.from({ length: endOfMonth.getDate() }, (_, i) => ({
+      const daysInMonth = new Date(currY, nowVn.getUTCMonth() + 1, 0).getDate();
+      const daily_revenues = Array.from({ length: daysInMonth }, (_, i) => ({
         day: i + 1,
         revenue: dailyRevenuesMap.get(i + 1) || 0
       }));
-
-      // Calculate periodStats (Revenue, Order Count, Profit, Return Count, Return Amount)
-      const periodOrderCount = periodOrders.length;
-      const periodRevenue = periodOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
-      const periodReturnCount = periodReturns.length;
-      const periodReturnAmount = periodReturns.reduce((sum, r) => sum + Number(r.total || 0), 0);
-      const netSales = Math.max(0, periodRevenue - periodReturnAmount);
-      const estimatedProfit = Math.round(netSales * 0.1273);
-
-      const periodStats = {
-        orderCount: periodOrderCount,
-        revenue: periodRevenue,
-        profit: estimatedProfit,
-        returnCount: periodReturnCount,
-        returnAmount: periodReturnAmount,
-        timeRange
-      };
 
       // Enrich top customers with name
       const topCustomersIds = topCustomersDb.map(c => c.customerId).filter(id => id !== null) as number[];
@@ -269,19 +159,26 @@ export const dashboardController = {
 
       res.json({
         todayStats: {
-          orders: todayOrders,
-          revenue: todayRevenueSum,
-          returns: todayReturns,
+          orders: todayMetrics.orderCount,
+          revenue: todayMetrics.grossSales,
+          returns: todayMetrics.returnCount,
         },
-        periodStats,
+        periodStats: {
+          orderCount: periodMetrics.orderCount,
+          revenue: periodMetrics.grossSales,
+          profit: periodMetrics.netProfit,
+          returnCount: periodMetrics.returnCount,
+          returnAmount: periodMetrics.returnSales,
+          timeRange
+        },
         overview: {
           totalProducts,
           lowStockProducts,
           totalCustomers,
         },
         recentOrders,
-        monthly_revenue: monthlyRevenueSum,
-        prev_month_revenue: Number(prevMonthRevenueAggr._sum?.total || 0),
+        monthly_revenue: thisMonthMetrics.netSales,
+        prev_month_revenue: prevMonthMetrics.netSales,
         top_products,
         top_customers,
         daily_revenues
