@@ -315,17 +315,27 @@ export const reportController = {
         .filter((c: any) => c.type === 'EXPENSE')
         .reduce((sum: number, c: any) => sum + Number(c.amount), 0);
 
-      const netProfit = grossProfit + otherIncome - operatingExpenses;
+      const operatingProfit = grossProfit - operatingExpenses;
+      const otherExpenses = 0;
+      const netProfit = operatingProfit + otherIncome - otherExpenses;
 
       res.json({
+        grossRevenue: grossSales,
         grossSales,
+        orderDiscounts: 0,
         discounts: 0,
+        returnTotalVal: returnSales,
         returnSales,
+        totalDeductions: returnSales,
+        netRevenue: netSales,
         netSales,
+        cogs: netCogs,
         netCogs,
         grossProfit,
-        otherIncome,
         operatingExpenses,
+        operatingProfit,
+        otherIncome,
+        otherExpenses,
         netProfit
       });
     } catch (error) {
