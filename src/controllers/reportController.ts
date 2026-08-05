@@ -284,14 +284,16 @@ export const reportController = {
       const returns = filterByWorkingHoursDateRange(rawReturns, req.query);
       const cashbook = filterByWorkingHoursDateRange(rawCashbook, req.query);
 
-      const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total), 0);
-      const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total), 0);
-      const netSales = grossSales - returnSales;
+      const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
+      const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total || 0), 0);
+      const orderDiscounts = orders.reduce((sum: number, o: any) => sum + Number(o.discount || 0), 0);
+      const totalDeductions = orderDiscounts + returnSales;
+      const netSales = grossSales - totalDeductions;
 
       let cogsSales = 0;
       orders.forEach((o: any) => {
         (o.items || []).forEach((item: any) => {
-          const costUnit = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
+          const costUnit = Number(item.costPrice) > 0 ? Number(item.costPrice) : Number(item.product?.costPrice || item.product?.cost_price || 0);
           cogsSales += costUnit * Number(item.quantity || 0);
         });
       });
@@ -299,21 +301,23 @@ export const reportController = {
       let cogsReturns = 0;
       returns.forEach((r: any) => {
         (r.items || []).forEach((item: any) => {
-          const costUnit = Number(item.costPrice || item.product?.costPrice || item.product?.cost_price || 0);
+          const costUnit = Number(item.costPrice) > 0 ? Number(item.costPrice) : Number(item.product?.costPrice || item.product?.cost_price || 0);
           cogsReturns += costUnit * Number(item.quantity || 0);
         });
       });
 
-      const netCogs = cogsSales - cogsReturns;
+      const netCogs = Math.max(0, cogsSales - cogsReturns);
       const grossProfit = netSales - netCogs;
 
-      const otherIncome = cashbook
-        .filter((c: any) => c.type === 'INCOME')
-        .reduce((sum: number, c: any) => sum + Number(c.amount), 0);
-
+      // In KiotViet, operating expenses only include cashbook EXPENSE entries flagged as business expense
       const operatingExpenses = cashbook
-        .filter((c: any) => c.type === 'EXPENSE')
-        .reduce((sum: number, c: any) => sum + Number(c.amount), 0);
+        .filter((c: any) => c.type === 'EXPENSE' && (c.isBusinessExpense === true || c.is_business_expense === true))
+        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+
+      // In KiotViet, other income only includes cashbook INCOME entries flagged as business income/other income (not invoice payments)
+      const otherIncome = cashbook
+        .filter((c: any) => c.type === 'INCOME' && (c.isBusinessExpense === true || c.is_business_expense === true) && c.groupName !== 'Thu tiền khách hàng')
+        .reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
 
       const operatingProfit = grossProfit - operatingExpenses;
       const otherExpenses = 0;
@@ -322,11 +326,11 @@ export const reportController = {
       res.json({
         grossRevenue: grossSales,
         grossSales,
-        orderDiscounts: 0,
-        discounts: 0,
+        orderDiscounts,
+        discounts: orderDiscounts,
         returnTotalVal: returnSales,
         returnSales,
-        totalDeductions: returnSales,
+        totalDeductions,
         netRevenue: netSales,
         netSales,
         cogs: netCogs,
