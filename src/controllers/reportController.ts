@@ -69,12 +69,7 @@ export function filterByWorkingHoursDateRange<T extends { createdAt: Date | stri
     if (!dateInput) return '';
     const d = new Date(dateInput);
     if (isNaN(d.getTime())) return '';
-
-    const vnTime = new Date(d.getTime() + 7 * 3600 * 1000);
-    const year = vnTime.getUTCFullYear();
-    const month = String(vnTime.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(vnTime.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return d.toISOString().split('T')[0];
   };
 
   const cleanYMD = (str: string): string => {
