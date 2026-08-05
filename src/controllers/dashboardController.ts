@@ -108,9 +108,7 @@ export const dashboardController = {
         totalProducts,
         lowStockProducts,
         totalCustomers,
-        recentOrders,
-        topProductsDb,
-        topCustomersDb
+        recentOrders
       ] = await Promise.all([
         prisma.order.findMany({
           where: { tenantId, status: { not: 'CANCELLED' } },
@@ -118,8 +116,9 @@ export const dashboardController = {
             id: true,
             total: true,
             discount: true,
+            customerId: true,
             createdAt: true,
-            items: { select: { quantity: true, costPrice: true, product: { select: { costPrice: true } } } }
+            items: { select: { productId: true, quantity: true, costPrice: true, total: true, price: true, product: { select: { costPrice: true } } } }
           }
         }),
         prisma.return.findMany({
@@ -127,8 +126,9 @@ export const dashboardController = {
           select: {
             id: true,
             total: true,
+            customerId: true,
             createdAt: true,
-            items: { select: { quantity: true, costPrice: true, product: { select: { costPrice: true } } } }
+            items: { select: { productId: true, quantity: true, costPrice: true, total: true, price: true, product: { select: { costPrice: true } } } }
           }
         }),
         prisma.cashbookEntry.findMany({
@@ -143,21 +143,6 @@ export const dashboardController = {
           take: 10,
           orderBy: { createdAt: 'desc' },
           include: { customer: { select: { name: true } }, user: { select: { fullName: true } } }
-        }),
-        prisma.orderItem.groupBy({
-          by: ['productId'],
-          where: { order: { tenantId, createdAt: { gte: new Date(`${prodRange.fromDate}T00:00:00.000+07:00`), lte: new Date(`${prodRange.toDate}T23:59:59.999+07:00`) }, status: { not: 'CANCELLED' } } },
-          _sum: { quantity: true, total: true },
-          orderBy: { _sum: { quantity: 'desc' } },
-          take: 5
-        }),
-        prisma.order.groupBy({
-          by: ['customerId'],
-          where: { tenantId, createdAt: { gte: new Date(`${custRange.fromDate}T00:00:00.000+07:00`), lte: new Date(`${custRange.toDate}T23:59:59.999+07:00`) }, status: { not: 'CANCELLED' }, customerId: { not: null } },
-          _sum: { total: true },
-          _count: { id: true },
-          orderBy: { _sum: { total: 'desc' } },
-          take: 5
         })
       ]);
 
@@ -201,32 +186,59 @@ export const dashboardController = {
         revenue: dailyRevenuesMap.get(i + 1) || 0
       }));
 
-      // Enrich top customers with name
-      const topCustomersIds = topCustomersDb.map(c => c.customerId).filter(id => id !== null) as number[];
-      const customersData = await prisma.customer.findMany({
-        where: { tenantId, id: { in: topCustomersIds } },
+      // 4. Compute Top Products
+      const prodFilteredOrders = filterByWorkingHoursDateRange(allOrders, { fromDate: prodRange.fromDate, toDate: prodRange.toDate });
+      const prodMap: Record<number, { id: number; total_sold: number; total_revenue: number }> = {};
+      prodFilteredOrders.forEach((o: any) => {
+        (o.items || []).forEach((it: any) => {
+          const pId = Number(it.productId || 0);
+          if (!pId) return;
+          if (!prodMap[pId]) prodMap[pId] = { id: pId, total_sold: 0, total_revenue: 0 };
+          const qty = Number(it.quantity || 0);
+          const total = Number(it.total || 0) || (Number(it.price || 0) * qty);
+          prodMap[pId].total_sold += qty;
+          prodMap[pId].total_revenue += total;
+        });
+      });
+
+      const topProdList = Object.values(prodMap).sort((a, b) => b.total_sold - a.total_sold).slice(0, 5);
+      const topProdIds = topProdList.map(p => p.id);
+      const productsData = await prisma.product.findMany({
+        where: { tenantId, id: { in: topProdIds } },
         select: { id: true, name: true }
       });
-      const top_customers = topCustomersDb.map(c => {
-        const cust = customersData.find(cd => cd.id === c.customerId);
+      const top_products = topProdList.map(p => {
+        const prod = productsData.find(pd => pd.id === p.id);
         return {
-          name: cust?.name || 'Khách lẻ',
-          total_spent: Number(c._sum?.total || 0),
-          order_count: Number((c._count as any)?.id || 0)
+          name: prod?.name || 'Sản phẩm',
+          total_sold: p.total_sold,
+          total_revenue: p.total_revenue
         };
       });
 
-      const topProductsIds = topProductsDb.map(p => p.productId).filter(id => id !== null) as number[];
-      const productsData = await prisma.product.findMany({
-        where: { tenantId, id: { in: topProductsIds } },
+      // 5. Compute Top Customers
+      const custFilteredOrders = filterByWorkingHoursDateRange(allOrders, { fromDate: custRange.fromDate, toDate: custRange.toDate });
+      const custMap: Record<number, { id: number; order_count: number; total_spent: number }> = {};
+      custFilteredOrders.forEach((o: any) => {
+        const cId = Number(o.customerId || 0);
+        if (!cId) return;
+        if (!custMap[cId]) custMap[cId] = { id: cId, order_count: 0, total_spent: 0 };
+        custMap[cId].order_count += 1;
+        custMap[cId].total_spent += Number(o.total || 0);
+      });
+
+      const topCustList = Object.values(custMap).sort((a, b) => b.total_spent - a.total_spent).slice(0, 5);
+      const topCustIds = topCustList.map(c => c.id);
+      const customersData = await prisma.customer.findMany({
+        where: { tenantId, id: { in: topCustIds } },
         select: { id: true, name: true }
       });
-      const top_products = topProductsDb.map(p => {
-        const prod = productsData.find(pd => pd.id === p.productId);
+      const top_customers = topCustList.map(c => {
+        const cust = customersData.find(cd => cd.id === c.id);
         return {
-          name: prod?.name || 'Sản phẩm',
-          total_sold: Number(p._sum?.quantity || 0),
-          total_revenue: Number(p._sum?.total || 0)
+          name: cust?.name || 'Khách lẻ',
+          total_spent: c.total_spent,
+          order_count: c.order_count
         };
       });
 
