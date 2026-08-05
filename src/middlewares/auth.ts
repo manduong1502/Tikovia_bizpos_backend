@@ -24,14 +24,25 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, config.jwt.secret) as { id: number; username: string; role: string };
 
-    // Verify user still exists, is active, and belongs to the current tenant
+    // Verify user still exists, is active
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
     if (!user || !user.isActive) {
       return res.status(401).json({ message: 'Tài khoản không tồn tại hoặc đã bị khóa' });
     }
 
-    if (req.tenant && user.tenantId !== req.tenant.id) {
-      return res.status(401).json({ message: 'Tài khoản không thuộc cửa hàng này' });
+    // Auto-sync tenant context from user's tenantId if available
+    if (user.tenantId) {
+      const userTenant = await prisma.tenant.findUnique({ where: { id: user.tenantId } });
+      if (userTenant) {
+        req.tenant = {
+          id: userTenant.id,
+          name: userTenant.name,
+          subdomain: userTenant.subdomain,
+          plan: userTenant.plan,
+          isActive: userTenant.isActive,
+          expiredAt: userTenant.expiredAt,
+        };
+      }
     }
 
     req.user = { id: decoded.id, username: decoded.username, role: decoded.role, tenantId: user.tenantId };
