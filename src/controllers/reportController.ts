@@ -432,8 +432,8 @@ export const reportController = {
       startDate = parseDate(fromDateStr, false) || new Date(0);
       endDate = parseDate(toDateStr, true) || new Date();
 
-      // Fetch orders and returns directly with correct date range (NO ±24h, NO working hours filter)
-      const [orders, returns] = await Promise.all([
+      // Fetch orders and returns directly with correct date range
+      let [orders, returns] = await Promise.all([
         prisma.order.findMany({
           where: {
             tenantId,
@@ -455,6 +455,10 @@ export const reportController = {
           }
         })
       ]);
+
+      // Apply working hours / date filter to align with Sales Report
+      orders = filterByWorkingHoursDateRange(orders, req.query);
+      returns = filterByWorkingHoursDateRange(returns, req.query);
 
       // (1) Doanh thu bán hàng = SUM(order.total)
       const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
