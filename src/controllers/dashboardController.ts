@@ -2,6 +2,89 @@ import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { computePeriodFinancialMetrics, filterByWorkingHoursDateRange } from './reportController';
 
+function getTimeRangeYMD(timeRange: string): { fromDate: string; toDate: string } {
+  const nowVn = new Date(new Date().getTime() + (7 * 3600 * 1000));
+  const vnYear = nowVn.getUTCFullYear();
+  const vnMonth = nowVn.getUTCMonth(); // 0-based
+  const vnDate = nowVn.getUTCDate();
+
+  const toYMD = (d: Date) => {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const todayDate = new Date(Date.UTC(vnYear, vnMonth, vnDate));
+  
+  if (timeRange === 'Hôm nay') {
+    const s = toYMD(todayDate);
+    return { fromDate: s, toDate: s };
+  }
+  if (timeRange === 'Hôm qua') {
+    const yesterday = new Date(todayDate.getTime() - (24 * 3600 * 1000));
+    const s = toYMD(yesterday);
+    return { fromDate: s, toDate: s };
+  }
+  if (timeRange === '7 ngày qua') {
+    const start = new Date(todayDate.getTime() - (6 * 24 * 3600 * 1000));
+    return { fromDate: toYMD(start), toDate: toYMD(todayDate) };
+  }
+  if (timeRange === '30 ngày qua') {
+    const start = new Date(todayDate.getTime() - (29 * 24 * 3600 * 1000));
+    return { fromDate: toYMD(start), toDate: toYMD(todayDate) };
+  }
+  if (timeRange === 'Tuần này') {
+    const day = nowVn.getUTCDay();
+    const diff = vnDate - day + (day === 0 ? -6 : 1);
+    const start = new Date(Date.UTC(vnYear, vnMonth, diff));
+    return { fromDate: toYMD(start), toDate: toYMD(todayDate) };
+  }
+  if (timeRange === 'Tuần trước') {
+    const day = nowVn.getUTCDay();
+    const diff = vnDate - day + (day === 0 ? -6 : 1) - 7;
+    const start = new Date(Date.UTC(vnYear, vnMonth, diff));
+    const end = new Date(start.getTime() + (6 * 24 * 3600 * 1000));
+    return { fromDate: toYMD(start), toDate: toYMD(end) };
+  }
+  if (timeRange === 'Tháng này') {
+    const start = new Date(Date.UTC(vnYear, vnMonth, 1));
+    const end = new Date(Date.UTC(vnYear, vnMonth + 1, 0));
+    return { fromDate: toYMD(start), toDate: toYMD(end) };
+  }
+  if (timeRange === 'Tháng trước') {
+    const start = new Date(Date.UTC(vnYear, vnMonth - 1, 1));
+    const end = new Date(Date.UTC(vnYear, vnMonth, 0));
+    return { fromDate: toYMD(start), toDate: toYMD(end) };
+  }
+  if (timeRange === 'Quý này') {
+    const quarter = Math.floor(vnMonth / 3);
+    const start = new Date(Date.UTC(vnYear, quarter * 3, 1));
+    const end = new Date(Date.UTC(vnYear, quarter * 3 + 3, 0));
+    return { fromDate: toYMD(start), toDate: toYMD(end) };
+  }
+  if (timeRange === 'Quý trước') {
+    const quarter = Math.floor(vnMonth / 3) - 1;
+    const start = new Date(Date.UTC(vnYear, quarter * 3, 1));
+    const end = new Date(Date.UTC(vnYear, quarter * 3 + 3, 0));
+    return { fromDate: toYMD(start), toDate: toYMD(end) };
+  }
+  if (timeRange === 'Năm nay') {
+    return { fromDate: `${vnYear}-01-01`, toDate: `${vnYear}-12-31` };
+  }
+  if (timeRange === 'Năm trước') {
+    return { fromDate: `${vnYear - 1}-01-01`, toDate: `${vnYear - 1}-12-31` };
+  }
+  if (timeRange === 'Toàn thời gian') {
+    return { fromDate: '2000-01-01', toDate: '2099-12-31' };
+  }
+
+  // Default: Tháng này
+  const start = new Date(Date.UTC(vnYear, vnMonth, 1));
+  const end = new Date(Date.UTC(vnYear, vnMonth + 1, 0));
+  return { fromDate: toYMD(start), toDate: toYMD(end) };
+}
+
 export const dashboardController = {
   get: async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -14,25 +97,8 @@ export const dashboardController = {
       const dateFrom = req.query.dateFrom as string;
       const dateTo = req.query.dateTo as string;
 
-      const getRange = (type: string) => {
-        const now = new Date();
-        const vnTime = new Date(now.getTime() + (7 * 3600 * 1000));
-        const vnYear = vnTime.getUTCFullYear();
-        const vnMonth = vnTime.getUTCMonth();
-        const vnDate = vnTime.getUTCDate();
-
-        const startOfDay = new Date(Date.UTC(vnYear, vnMonth, vnDate, 0, 0, 0, 0) - (7 * 3600 * 1000));
-        const endOfDay = new Date(Date.UTC(vnYear, vnMonth, vnDate, 23, 59, 59, 999) - (7 * 3600 * 1000));
-
-        if (type === 'Hôm nay') return { start: startOfDay, end: endOfDay };
-        if (type === 'Hôm qua') return { start: new Date(startOfDay.getTime() - 24 * 3600 * 1000), end: new Date(endOfDay.getTime() - 24 * 3600 * 1000) };
-        if (type === 'Tháng trước') return { start: new Date(Date.UTC(vnYear, vnMonth - 1, 1, 0, 0, 0, 0) - 7 * 3600 * 1000), end: new Date(Date.UTC(vnYear, vnMonth, 0, 23, 59, 59, 999) - 7 * 3600 * 1000) };
-        
-        return { start: new Date(Date.UTC(vnYear, vnMonth, 1, 0, 0, 0, 0) - 7 * 3600 * 1000), end: new Date(Date.UTC(vnYear, vnMonth + 1, 0, 23, 59, 59, 999) - 7 * 3600 * 1000) };
-      };
-
-      const prodRange = getRange(timeProd);
-      const custRange = getRange(timeCust);
+      const prodRange = getTimeRangeYMD(timeProd);
+      const custRange = getTimeRangeYMD(timeCust);
 
       // Fetch all core raw entities for tenant to compute exact report-aligned metrics
       const [
@@ -80,14 +146,14 @@ export const dashboardController = {
         }),
         prisma.orderItem.groupBy({
           by: ['productId'],
-          where: { order: { tenantId, createdAt: { gte: prodRange.start, lte: prodRange.end }, status: { not: 'CANCELLED' } } },
+          where: { order: { tenantId, createdAt: { gte: new Date(`${prodRange.fromDate}T00:00:00.000+07:00`), lte: new Date(`${prodRange.toDate}T23:59:59.999+07:00`) }, status: { not: 'CANCELLED' } } },
           _sum: { quantity: true, total: true },
           orderBy: { _sum: { quantity: 'desc' } },
           take: 5
         }),
         prisma.order.groupBy({
           by: ['customerId'],
-          where: { tenantId, createdAt: { gte: custRange.start, lte: custRange.end }, status: { not: 'CANCELLED' }, customerId: { not: null } },
+          where: { tenantId, createdAt: { gte: new Date(`${custRange.fromDate}T00:00:00.000+07:00`), lte: new Date(`${custRange.toDate}T23:59:59.999+07:00`) }, status: { not: 'CANCELLED' }, customerId: { not: null } },
           _sum: { total: true },
           _count: { id: true },
           orderBy: { _sum: { total: 'desc' } },
@@ -102,7 +168,14 @@ export const dashboardController = {
       const todayMetrics = computePeriodFinancialMetrics(allOrders, allReturns, allCashbook, { fromDate: vnNowStr, toDate: vnNowStr });
       
       // 2. Compute SELECTED PERIOD metrics matching Report logic 100%
-      const periodMetrics = computePeriodFinancialMetrics(allOrders, allReturns, allCashbook, { fromDate: dateFrom, toDate: dateTo, timeRange });
+      let activeFromDate = dateFrom;
+      let activeToDate = dateTo;
+      if (!activeFromDate || !activeToDate) {
+        const parsedRange = getTimeRangeYMD(timeRange);
+        activeFromDate = parsedRange.fromDate;
+        activeToDate = parsedRange.toDate;
+      }
+      const periodMetrics = computePeriodFinancialMetrics(allOrders, allReturns, allCashbook, { fromDate: activeFromDate, toDate: activeToDate, timeRange });
 
       // 3. Compute THIS MONTH & PREV MONTH metrics matching Report logic
       const nowVn = new Date(new Date().getTime() + 7 * 3600 * 1000);
