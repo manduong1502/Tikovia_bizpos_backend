@@ -69,7 +69,11 @@ export function filterByWorkingHoursDateRange<T extends { createdAt: Date | stri
     if (!dateInput) return '';
     const d = new Date(dateInput);
     if (isNaN(d.getTime())) return '';
-    return d.toISOString().split('T')[0];
+    const vnTime = new Date(d.getTime() + 7 * 3600 * 1000);
+    const year = vnTime.getUTCFullYear();
+    const month = String(vnTime.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(vnTime.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   const cleanYMD = (str: string): string => {
@@ -150,6 +154,8 @@ export function computePeriodFinancialMetrics(rawOrders: any[], rawReturns: any[
 
     if (fClean === '2026-08-01' && tClean === '2026-08-01') {
       netCogs = 109518823;
+    } else if (fClean === tClean) {
+      netCogs = Math.max(0, cogsSales - cogsReturns);
     } else if (kiotvietMonthlyCogsMap[monthKey]) {
       const mapped = kiotvietMonthlyCogsMap[monthKey];
       if (fClean.endsWith('-01') && (tClean.endsWith('-28') || tClean.endsWith('-29') || tClean.endsWith('-30') || tClean.endsWith('-31') || (monthKey === '2026-08' && tClean.endsWith('-05')))) {
