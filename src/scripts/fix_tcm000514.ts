@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Script: Check and fix cashbook entries + customer debt in database
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient({
