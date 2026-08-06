@@ -36,14 +36,22 @@ function parseExcelDate(val: any): Date | null {
 }
 
 // Auto-generate code using SequenceTracker scoped by tenantId
+// With conflict recovery: if generated code already exists, increment and retry
 async function generatePOCode(tenantId: number, txClient?: any): Promise<string> {
   const db = txClient || prisma;
-  const seq = await db.sequenceTracker.upsert({
-    where: { tenantId_name: { tenantId, name: 'PURCHASE_ORDER' } },
-    update: { value: { increment: 1 } },
-    create: { tenantId, name: 'PURCHASE_ORDER', value: 1 }
-  });
-  return `PN${String(seq.value).padStart(6, '0')}`;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const seq = await db.sequenceTracker.upsert({
+      where: { tenantId_name: { tenantId, name: 'PURCHASE_ORDER' } },
+      update: { value: { increment: 1 } },
+      create: { tenantId, name: 'PURCHASE_ORDER', value: 1 }
+    });
+    const code = `PN${String(seq.value).padStart(6, '0')}`;
+    const existing = await db.purchaseOrder.findFirst({ where: { tenantId, code } });
+    if (!existing) return code;
+    // Code already exists, loop will increment again
+  }
+  // Fallback: use timestamp-based code
+  return `PN${Date.now().toString().slice(-8)}`;
 }
 
 export const purchaseOrderController = {
