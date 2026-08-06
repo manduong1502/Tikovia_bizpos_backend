@@ -276,29 +276,30 @@ export const supplierController = {
       // Get all PurchaseOrders for this supplier
       const purchaseOrders = await prisma.purchaseOrder.findMany({
         where: { tenantId, supplierId: id, status: 'COMPLETED' },
-        select: { code: true, total: true, paid: true, createdAt: true },
+        select: { id: true, code: true, total: true, paid: true, createdAt: true },
         orderBy: { createdAt: 'desc' }
       });
 
       // Get all CashbookEntries (payments) for this supplier
       const cashbookEntries = await prisma.cashbookEntry.findMany({
         where: { tenantId, supplierId: id, type: 'EXPENSE' },
-        select: { code: true, amount: true, createdAt: true },
+        select: { id: true, code: true, amount: true, createdAt: true },
         orderBy: { createdAt: 'desc' }
       });
 
       // Get all PurchaseReturns for this supplier
       const purchaseReturns = await prisma.purchaseReturn.findMany({
         where: { tenantId, supplierId: id, status: 'COMPLETED' },
-        select: { code: true, total: true, createdAt: true },
+        select: { id: true, code: true, total: true, createdAt: true },
         orderBy: { createdAt: 'desc' }
       });
 
       // Merge all entries into a single list
-      const entries: { code: string; type: string; typeName: string; date: Date; amount: number }[] = [];
+      const entries: { orderId: number; code: string; type: string; typeName: string; date: Date; amount: number }[] = [];
 
       for (const po of purchaseOrders) {
         entries.push({
+          orderId: po.id,
           code: po.code,
           type: 'import',
           typeName: 'Nhập hàng',
@@ -309,6 +310,7 @@ export const supplierController = {
 
       for (const ce of cashbookEntries) {
         entries.push({
+          orderId: ce.id,
           code: ce.code,
           type: 'payment',
           typeName: 'Thanh toán',
@@ -319,6 +321,7 @@ export const supplierController = {
 
       for (const pr of purchaseReturns) {
         entries.push({
+          orderId: pr.id,
           code: pr.code,
           type: 'return',
           typeName: 'Trả hàng',
@@ -347,6 +350,7 @@ export const supplierController = {
         const runningDebt = tempDebt;
         tempDebt -= item.amount;
         return {
+          orderId: item.orderId,
           code: item.code,
           type: item.type,
           typeName: item.typeName,
