@@ -42,6 +42,7 @@ router.get('/customers/:id', authenticate, customerController.getById);
 router.post('/customers/import', authenticate, customerController.importExcel);
 router.post('/customers', authenticate, customerController.create);
 router.put('/customers/:id', authenticate, customerController.update);
+router.post('/customers/bulk-update-debt', authenticate, customerController.bulkUpdateDebt);
 router.delete('/customers/:id', authenticate, authorize('ADMIN', 'MANAGER'), customerController.delete);
 
 // ─── Orders ───

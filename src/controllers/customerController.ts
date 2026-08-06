@@ -306,4 +306,43 @@ export const customerController = {
       next(error);
     }
   },
+
+  // Temporary endpoint: Bulk update customer debts by code
+  bulkUpdateDebt: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.user!.tenantId;
+      const { updates } = req.body; // [{ code: 'KH001113', totalDebt: 69610000 }, ...]
+      
+      if (!Array.isArray(updates)) {
+        return res.status(400).json({ message: 'updates must be an array of { code, totalDebt }' });
+      }
+
+      let success = 0, notFound = 0;
+      const results: any[] = [];
+
+      for (const u of updates) {
+        const customer = await prisma.customer.findFirst({
+          where: { tenantId, code: u.code }
+        });
+        
+        if (!customer) {
+          results.push({ code: u.code, status: 'not_found' });
+          notFound++;
+          continue;
+        }
+
+        await prisma.customer.update({
+          where: { id: customer.id },
+          data: { totalDebt: Number(u.totalDebt) }
+        });
+        
+        results.push({ code: u.code, name: customer.name, oldDebt: Number(customer.totalDebt), newDebt: Number(u.totalDebt), status: 'ok' });
+        success++;
+      }
+
+      res.json({ message: `Updated ${success} customers, ${notFound} not found`, success, notFound, results });
+    } catch (error) {
+      next(error);
+    }
+  },
 };
