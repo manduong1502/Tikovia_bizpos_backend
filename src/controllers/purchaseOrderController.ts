@@ -434,14 +434,22 @@ export const purchaseOrderController = {
             )
           );
 
-          const debt = Number(po.total) - Number(po.paid);
-          await tx.supplier.update({
-            where: { id: po.supplierId },
-            data: {
-              ...(debt !== 0 ? { totalDebt: { decrement: debt } } : {}),
-              lastTransaction: new Date()
-            },
-          });
+          // Safely update supplier debt (skip if supplier ID is invalid/not found)
+          try {
+            const supplier = await tx.supplier.findFirst({ where: { id: po.supplierId, tenantId } });
+            if (supplier) {
+              const debt = Number(po.total) - Number(po.paid);
+              await tx.supplier.update({
+                where: { id: po.supplierId },
+                data: {
+                  ...(debt !== 0 ? { totalDebt: { decrement: debt } } : {}),
+                  lastTransaction: new Date()
+                },
+              });
+            }
+          } catch (e) {
+            console.warn(`Cancel PO ${po.code}: supplier ${po.supplierId} not found or invalid, skipping debt update`);
+          }
           
           // Also cancel associated cashbook entries
           await tx.cashbookEntry.updateMany({
