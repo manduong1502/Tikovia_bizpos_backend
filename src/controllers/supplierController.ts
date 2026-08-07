@@ -330,9 +330,19 @@ export const supplierController = {
         });
       }
 
-      // Sort by date DESC (newest first), with payments before imports at same time (like KiotViet)
+      // Normalize UTC date to Vietnam display time (same logic as frontend formatWorkingHoursDateTime)
+      const normalizeVNTime = (d: Date): number => {
+        const dt = new Date(d);
+        const h = dt.getHours();
+        if (h < 7 || h >= 18) {
+          return dt.getTime() - 7 * 3600 * 1000;
+        }
+        return dt.getTime();
+      };
+
+      // Sort by normalized Vietnam time DESC (newest first)
       entries.sort((a, b) => {
-        const timeDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+        const timeDiff = normalizeVNTime(b.date) - normalizeVNTime(a.date);
         if (timeDiff !== 0) return timeDiff;
         // At same time: payment first, then return, then import
         const getPriority = (t: string) => {
