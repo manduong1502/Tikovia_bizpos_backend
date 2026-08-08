@@ -271,15 +271,7 @@ export const purchaseOrderController = {
               data: { totalDebt: { decrement: oldDebt } },
             });
           }
-          // Hủy phiếu chi cũ chỉ khi có điều chỉnh giảm số tiền thanh toán
-          const newPaidVal = paid !== undefined ? Number(paid) : Number(oldPO.paid);
-          const oldPaidVal = Number(oldPO.paid);
-          if (newPaidVal < oldPaidVal && oldPaidVal > 0) {
-            await tx.cashbookEntry.updateMany({
-              where: { tenantId, purchaseOrderId: id, status: 'completed' },
-              data: { status: 'cancelled', note: 'Hủy thanh toán do điều chỉnh giảm số tiền' }
-            });
-          }
+          // Giữ nguyên lịch sử phiếu chi cũ (không hủy status) khi điều chỉnh đơn nhập hàng
         }
 
         // 2. Cập nhật chi tiết items

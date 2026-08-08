@@ -608,51 +608,44 @@ export const orderController = {
             });
           }
           
-          // 6. Update/Sync Cashbook entry
+          // 6. Update/Sync Cashbook entry - Preserve existing entry as completed to retain payment history
           const existingEntry = await tx.cashbookEntry.findFirst({
             where: { tenantId, orderId: id }
           });
-          if (paid > 0) {
-            if (existingEntry) {
-              await tx.cashbookEntry.update({
-                where: { id: existingEntry.id },
-                data: { 
-                  amount: paid, 
-                  customerId: body.customerId || null, 
-                  status: 'completed',
-                  ...(customOrderDate && { createdAt: customOrderDate })
-                }
-              });
-            } else {
-              const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
-              await tx.cashbookEntry.create({
-                data: {
-                  code: cashbookCode,
-                  type: 'INCOME',
-                  amount: paid,
-                  category: 'Thu tiền khách trả',
-                  partnerType: body.customerId ? 'customer' : 'other',
-                  customerId: body.customerId || null,
-                  partnerName: newOrder.customer?.name || 'Khách lẻ',
-                  paymentMethod: body.paymentMethod === 'CARD' ? 'bank' : (body.paymentMethod === 'TRANSFER' ? 'bank' : 'cash'),
-                  isAccounting: true,
-                  status: 'completed',
-                  branch: 'Chi nhánh trung tâm',
-                  userId: req.user!.id,
-                  orderId: id,
-                  note: `Thu tiền đơn hàng ${newOrder.code} (Cập nhật)`,
-                  tenantId,
-                  createdAt: customOrderDate || newOrder.createdAt,
-                }
-              });
-            }
-          } else {
-            if (existingEntry) {
-              await tx.cashbookEntry.update({
-                where: { id: existingEntry.id },
-                data: { amount: 0, status: 'cancelled', note: 'Hủy thanh toán theo hóa đơn cập nhật' }
-              });
-            }
+          if (existingEntry) {
+            const newAmount = (body.paid !== undefined && body.paid > 0) ? body.paid : existingEntry.amount;
+            await tx.cashbookEntry.update({
+              where: { id: existingEntry.id },
+              data: { 
+                amount: newAmount, 
+                customerId: body.customerId || null, 
+                partnerName: newOrder.customer?.name || 'Khách lẻ',
+                status: 'completed',
+                ...(customOrderDate && { createdAt: customOrderDate })
+              }
+            });
+          } else if (paid > 0) {
+            const cashbookCode = `TTM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+            await tx.cashbookEntry.create({
+              data: {
+                code: cashbookCode,
+                type: 'INCOME',
+                amount: paid,
+                category: 'Thu tiền khách trả',
+                partnerType: body.customerId ? 'customer' : 'other',
+                customerId: body.customerId || null,
+                partnerName: newOrder.customer?.name || 'Khách lẻ',
+                paymentMethod: body.paymentMethod === 'CARD' ? 'bank' : (body.paymentMethod === 'TRANSFER' ? 'bank' : 'cash'),
+                isAccounting: true,
+                status: 'completed',
+                branch: 'Chi nhánh trung tâm',
+                userId: req.user!.id,
+                orderId: id,
+                note: `Thu tiền đơn hàng ${newOrder.code} (Cập nhật)`,
+                tenantId,
+                createdAt: customOrderDate || newOrder.createdAt,
+              }
+            });
           }
 
           return newOrder;
