@@ -13,9 +13,15 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
     let y = 0, m = 0, d = 0;
     if (clean.includes('/')) {
       const parts = clean.split('/');
-      d = parseInt(parts[0], 10);
-      m = parseInt(parts[1], 10);
-      y = parseInt(parts[2], 10);
+      if (parts[0].length === 4) {
+        y = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10);
+        d = parseInt(parts[2], 10);
+      } else {
+        d = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10);
+        y = parseInt(parts[2], 10);
+      }
     } else if (clean.includes('-')) {
       const parts = clean.split('-');
       if (parts[0].length === 4) {
@@ -51,8 +57,9 @@ function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date }
     startDate = s.getTime() > 0 ? new Date(s.getTime() - 24 * 3600 * 1000) : new Date(0);
     endDate = new Date(e.getTime() + 24 * 3600 * 1000);
   } else {
-    startDate = new Date(0);
-    endDate = new Date();
+    const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
+    startDate = new Date(`${todayStr}T00:00:00.000+07:00`);
+    endDate = new Date(`${todayStr}T23:59:59.999+07:00`);
   }
 
   return { startDate, endDate };
@@ -65,19 +72,18 @@ export function filterByWorkingHoursDateRange<T extends { createdAt: Date | stri
 
   if (!fStr && !tStr) return items;
 
-  const getYMD = (dateInput: Date | string): string => {
+  const extractYMD = (dateInput: Date | string): string => {
     if (!dateInput) return '';
-    const d = new Date(dateInput);
-    if (isNaN(d.getTime())) return '';
-    try {
-      return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
-    } catch {
-      const vnTime = new Date(d.getTime() + 7 * 3600 * 1000);
-      const year = vnTime.getUTCFullYear();
-      const month = String(vnTime.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(vnTime.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
+    let d: Date;
+    if (dateInput instanceof Date) {
+      d = dateInput;
+    } else {
+      const str = String(dateInput).trim();
+      d = new Date(str.includes('T') || str.includes('Z') ? str : `${str}T00:00:00.000+07:00`);
     }
+    if (isNaN(d.getTime())) return '';
+    const vnTime = new Date(d.getTime() + 7 * 3600 * 1000);
+    return vnTime.toISOString().split('T')[0];
   };
 
   const cleanYMD = (str: string): string => {
@@ -85,6 +91,11 @@ export function filterByWorkingHoursDateRange<T extends { createdAt: Date | stri
     const clean = str.split('T')[0].trim();
     if (clean.includes('/')) {
       const parts = clean.split('/');
+      if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    } else if (clean.includes('-')) {
+      const parts = clean.split('-');
+      if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
       return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
     }
     return clean;
@@ -94,7 +105,8 @@ export function filterByWorkingHoursDateRange<T extends { createdAt: Date | stri
   const endYMD = cleanYMD(String(tStr || fStr));
 
   return items.filter(item => {
-    const ymd = getYMD(item.createdAt);
+    const ymd = extractYMD(item.createdAt);
+    if (!ymd) return true;
     if (startYMD && ymd < startYMD) return false;
     if (endYMD && ymd > endYMD) return false;
     return true;
@@ -270,10 +282,24 @@ export const reportController = {
             createdAt: { gte: startDate, lte: endDate },
             status: { not: 'CANCELLED' }
           },
-          include: {
-            items: { include: { product: true } },
-            customer: true,
-            user: { select: { id: true, username: true } }
+          select: {
+            id: true,
+            code: true,
+            total: true,
+            paid: true,
+            discount: true,
+            paymentMethod: true,
+            createdAt: true,
+            user: { select: { id: true, username: true } },
+            customer: { select: { id: true, name: true, phone: true } },
+            items: {
+              select: {
+                quantity: true,
+                price: true,
+                costPrice: true,
+                product: { select: { id: true, name: true, sku: true, costPrice: true } }
+              }
+            }
           },
           orderBy: { createdAt: 'desc' }
         }),
@@ -283,9 +309,19 @@ export const reportController = {
             createdAt: { gte: startDate, lte: endDate },
             status: 'COMPLETED' 
           },
-          include: {
-            items: { include: { product: true } },
-            customer: true
+          select: {
+            id: true,
+            code: true,
+            total: true,
+            paid: true,
+            createdAt: true,
+            customer: { select: { id: true, name: true, phone: true } },
+            items: {
+              select: {
+                quantity: true,
+                product: { select: { id: true, name: true, sku: true, costPrice: true } }
+              }
+            }
           },
           orderBy: { createdAt: 'desc' }
         }),
@@ -337,8 +373,16 @@ export const reportController = {
           netRevenue: Number(o.paid || 0),
           customerName: o.customer?.name || 'Khách lẻ',
           customerPhone: o.customer?.phone || '',
-          createdBy: o.user?.username || 'Võ Thành Huy',
-          paymentMethod: FRIENDLY_PAYMENT_METHODS[o.paymentMethod] || o.paymentMethod || 'Tiền mặt'
+          createdBy: o.user?.username || o.user?.name || 'admin',
+          paymentMethod: FRIENDLY_PAYMENT_METHODS[o.paymentMethod] || o.paymentMethod || 'Tiền mặt',
+          items: (o.items || []).map((it: any) => ({
+            productId: it.product?.id,
+            sku: it.product?.sku || '',
+            name: it.product?.name || 'Sản phẩm',
+            quantity: Number(it.quantity || 0),
+            price: Number(it.price || 0),
+            costPrice: Number(it.costPrice || it.product?.costPrice || 0)
+          }))
         };
       });
 
@@ -363,11 +407,57 @@ export const reportController = {
           netRevenue: -Number(r.paid || 0),
           customerName: r.customer?.name || 'Khách lẻ',
           customerPhone: r.customer?.phone || '',
-          createdBy: 'Võ Thành Huy'
+          createdBy: r.user?.username || r.user?.name || 'admin',
+          items: (r.items || []).map((it: any) => ({
+            productId: it.product?.id,
+            sku: it.product?.sku || '',
+            name: it.product?.name || 'Sản phẩm',
+            quantity: Number(it.quantity || 0),
+            costPrice: Number(it.costPrice || it.product?.costPrice || 0)
+          }))
         };
       });
 
+<<<<<<< HEAD
       res.json({
+=======
+      const cashbookDetails = cashbook.map((c: any) => ({
+        id: c.id,
+        code: c.code,
+        type: c.type,
+        amount: Number(c.amount || 0),
+        category: c.category || (c.type === 'INCOME' ? 'Thu nhập khác' : 'Chi phí khác'),
+        partnerName: c.partnerName || '---',
+        partnerPhone: c.partnerPhone || '',
+        paymentMethod: c.paymentMethod === 'bank' ? 'Chuyển khoản' : c.paymentMethod === 'card' ? 'Quẹt thẻ' : 'Tiền mặt',
+        createdBy: (c.createdBy && c.createdBy !== 'Võ Thành Huy') ? c.createdBy : 'admin',
+        createdAt: c.createdAt,
+        description: c.description || c.note || '',
+        status: c.status || 'completed'
+      }));
+
+      // Compute product breakdown
+      const goodsMap: Record<string, { sku: string; name: string; soldQty: number; revenue: number; costPrice: number }> = {};
+      orders.forEach((o: any) => {
+        (o.items || []).forEach((it: any) => {
+          const sku = it.product?.sku || `SP${it.product?.id || 0}`;
+          const name = it.product?.name || 'Sản phẩm';
+          const qty = Number(it.quantity || 0);
+          const price = Number(it.price || 0);
+          const costUnit = Number(it.costPrice || it.product?.costPrice || 0);
+          if (!goodsMap[sku]) {
+            goodsMap[sku] = { sku, name, soldQty: 0, revenue: 0, costPrice: 0 };
+          }
+          goodsMap[sku].soldQty += qty;
+          goodsMap[sku].revenue += price * qty;
+          goodsMap[sku].costPrice += costUnit * qty;
+        });
+      });
+
+      const productsSummary = Object.values(goodsMap);
+
+      const result = {
+>>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
         dateRange: { from: startDate, to: endDate },
         orderCount: orders.length,
         returnCount: returns.length,
@@ -379,8 +469,17 @@ export const reportController = {
         cashbookExpense: expense,
         netRevenue: totalSales - totalReturns,
         transactions: transactionDetails,
+<<<<<<< HEAD
         returns: returnDetails
       });
+=======
+        returns: returnDetails,
+        cashbook: cashbookDetails,
+        productsSummary
+      };
+      memoryCache.set(cacheKey, result, 120);
+      res.json(result);
+>>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
     } catch (error) {
       next(error);
     }
@@ -432,35 +531,67 @@ export const reportController = {
       startDate = parseDate(fromDateStr, false) || new Date(0);
       endDate = parseDate(toDateStr, true) || new Date();
 
-      // Fetch orders and returns directly with correct date range
-      let [orders, returns] = await Promise.all([
-        prisma.order.findMany({
+      // Execute fast aggregated database queries directly in PostgreSQL
+      const [orderAgg, returnAgg, cogsSalesRes, cogsReturnsRes, cashbookEntries] = await Promise.all([
+        prisma.order.aggregate({
           where: {
             tenantId,
             createdAt: { gte: startDate, lte: endDate },
             status: { not: 'CANCELLED' }
           },
-          include: {
-            items: { include: { product: true } }
-          }
+          _sum: { total: true, discount: true }
         }),
-        prisma.return.findMany({
+        prisma.return.aggregate({
           where: {
             tenantId,
             createdAt: { gte: startDate, lte: endDate },
             status: 'COMPLETED'
           },
-          include: {
-            items: { include: { product: true } }
+          _sum: { total: true }
+        }),
+        prisma.$queryRaw<[{ cogs: number }]>`
+          SELECT COALESCE(SUM(
+            (CASE WHEN oi."costPrice" > 0 THEN oi."costPrice" ELSE COALESCE(p."costPrice", 0) END) * oi.quantity
+          ), 0)::float as cogs
+          FROM "OrderItem" oi
+          JOIN "Order" o ON o.id = oi."orderId"
+          LEFT JOIN "Product" p ON p.id = oi."productId"
+          WHERE o."tenantId" = ${tenantId}
+            AND o."createdAt" >= ${startDate}
+            AND o."createdAt" <= ${endDate}
+            AND o.status != 'CANCELLED'
+        `,
+        prisma.$queryRaw<[{ cogs: number }]>`
+          SELECT COALESCE(SUM(COALESCE(p."costPrice", 0) * ri.quantity), 0)::float as cogs
+          FROM "ReturnItem" ri
+          JOIN "Return" r ON r.id = ri."returnId"
+          LEFT JOIN "Product" p ON p.id = ri."productId"
+          WHERE r."tenantId" = ${tenantId}
+            AND r."createdAt" >= ${startDate}
+            AND r."createdAt" <= ${endDate}
+            AND r.status = 'COMPLETED'
+        `,
+        prisma.cashbookEntry.findMany({
+          where: {
+            tenantId,
+            createdAt: { gte: startDate, lte: endDate },
+            status: { not: 'cancelled' },
+            isAccounting: true,
+            orderId: null,
+            purchaseOrderId: null,
+            returnId: null
+          },
+          select: {
+            amount: true,
+            type: true,
+            category: true,
+            partnerType: true
           }
         })
       ]);
 
-      // Apply working hours / date filter to align with Sales Report
-      orders = filterByWorkingHoursDateRange(orders, req.query);
-      returns = filterByWorkingHoursDateRange(returns, req.query);
-
       // (1) Doanh thu bán hàng = SUM(order.total)
+<<<<<<< HEAD
       const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
       
       // (2.1) Chiết khấu hóa đơn = SUM(order.discount)
@@ -469,6 +600,16 @@ export const reportController = {
       // (2.2) Giá trị hàng bán bị trả lại = SUM(return.total)
       const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total || 0), 0);
       
+=======
+      const grossSales = Number(orderAgg._sum.total || 0);
+
+      // (2.1) Chiết khấu hóa đơn = SUM(order.discount)
+      const discounts = Number(orderAgg._sum.discount || 0);
+
+      // (2.2) Giá trị hàng bán bị trả lại = SUM(return.total)
+      const returnSales = Number(returnAgg._sum.total || 0);
+
+>>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
       // (2) Giảm trừ doanh thu = 2.1 + 2.2
       const totalDeductions = discounts + returnSales;
       
@@ -476,6 +617,7 @@ export const reportController = {
       const netSales = grossSales - totalDeductions;
 
       // (4) Giá vốn hàng bán
+<<<<<<< HEAD
       // Note: OrderItem.costPrice is a Prisma Decimal that's truthy even when 0
       // Must convert to Number first, then check > 0 before using fallback
       let cogsSales = 0;
@@ -516,6 +658,44 @@ export const reportController = {
       
       // (10) Lợi nhuận thuần = (7 + 8) - 9
       const netProfit = operatingProfit + otherIncome - otherExpenses;
+=======
+      const cogsSales = Number(cogsSalesRes?.[0]?.cogs || 0);
+      const cogsReturns = Number(cogsReturnsRes?.[0]?.cogs || 0);
+      const netCogs = Math.max(0, cogsSales - cogsReturns);
+
+      // (5) Lợi nhuận gộp = 3 - 4
+      const grossProfit = netSales - netCogs;
+
+      // (6) Chi phí hoạt động & (8) Thu nhập khác từ Sổ quỹ
+      let staffSalary = 0;
+      let otherOperatingExpenses = 0;
+      let operatingExpenses = 0;
+      let otherIncome = 0;
+
+      cashbookEntries.forEach((cb: any) => {
+        const amt = Number(cb.amount || 0);
+        if (cb.type === 'EXPENSE') {
+          operatingExpenses += amt;
+          const cat = (cb.category || '').toLowerCase();
+          const partner = (cb.partnerType || '').toLowerCase();
+          if (cat.includes('lương') || cat.includes('luong') || partner === 'staff') {
+            staffSalary += amt;
+          } else {
+            otherOperatingExpenses += amt;
+          }
+        } else if (cb.type === 'INCOME') {
+          otherIncome += amt;
+        }
+      });
+
+      // (7) Lợi nhuận từ hoạt động kinh doanh = (5) - (6)
+      const operatingProfit = grossProfit - operatingExpenses;
+
+      // (8) Thu nhập khác
+
+      // (9) LỢI NHUẬN THUẦN (LÃI RÒNG) = (7) + (8)
+      const netProfit = operatingProfit + otherIncome;
+>>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
 
       res.json({
         grossSales,
@@ -530,13 +710,20 @@ export const reportController = {
         netCogs,
         cogs: netCogs,
         grossProfit,
+        staffSalary,
+        otherOperatingExpenses,
         operatingExpenses,
         operatingProfit,
         otherIncome,
-        otherExpenses,
         netProfit
+<<<<<<< HEAD
 
       });
+=======
+      };
+      memoryCache.set(cacheKey, result, 600);
+      res.json(result);
+>>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
     } catch (error) {
       next(error);
     }
