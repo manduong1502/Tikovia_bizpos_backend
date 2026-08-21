@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
+import { memoryCache } from '../utils/cache';
 
 function parseReportDateRange(reqQuery: any): { startDate: Date; endDate: Date } {
   let startDate: Date;
@@ -418,9 +419,6 @@ export const reportController = {
         };
       });
 
-<<<<<<< HEAD
-      res.json({
-=======
       const cashbookDetails = cashbook.map((c: any) => ({
         id: c.id,
         code: c.code,
@@ -457,7 +455,6 @@ export const reportController = {
       const productsSummary = Object.values(goodsMap);
 
       const result = {
->>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
         dateRange: { from: startDate, to: endDate },
         orderCount: orders.length,
         returnCount: returns.length,
@@ -469,17 +466,11 @@ export const reportController = {
         cashbookExpense: expense,
         netRevenue: totalSales - totalReturns,
         transactions: transactionDetails,
-<<<<<<< HEAD
-        returns: returnDetails
-      });
-=======
         returns: returnDetails,
         cashbook: cashbookDetails,
         productsSummary
       };
-      memoryCache.set(cacheKey, result, 120);
       res.json(result);
->>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
     } catch (error) {
       next(error);
     }
@@ -530,6 +521,12 @@ export const reportController = {
       
       startDate = parseDate(fromDateStr, false) || new Date(0);
       endDate = parseDate(toDateStr, true) || new Date();
+
+      const cacheKey = memoryCache ? memoryCache.tenantKey(tenantId, `reports:financial:${startDate.getTime()}:${endDate.getTime()}`) : '';
+      if (memoryCache && cacheKey) {
+        const cached = memoryCache.get(cacheKey);
+        if (cached) return res.json(cached);
+      }
 
       // Execute fast aggregated database queries directly in PostgreSQL
       const [orderAgg, returnAgg, cogsSalesRes, cogsReturnsRes, cashbookEntries] = await Promise.all([
@@ -591,16 +588,6 @@ export const reportController = {
       ]);
 
       // (1) Doanh thu bán hàng = SUM(order.total)
-<<<<<<< HEAD
-      const grossSales = orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
-      
-      // (2.1) Chiết khấu hóa đơn = SUM(order.discount)
-      const discounts = orders.reduce((sum: number, o: any) => sum + Number(o.discount || 0), 0);
-      
-      // (2.2) Giá trị hàng bán bị trả lại = SUM(return.total)
-      const returnSales = returns.reduce((sum: number, r: any) => sum + Number(r.total || 0), 0);
-      
-=======
       const grossSales = Number(orderAgg._sum.total || 0);
 
       // (2.1) Chiết khấu hóa đơn = SUM(order.discount)
@@ -609,7 +596,6 @@ export const reportController = {
       // (2.2) Giá trị hàng bán bị trả lại = SUM(return.total)
       const returnSales = Number(returnAgg._sum.total || 0);
 
->>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
       // (2) Giảm trừ doanh thu = 2.1 + 2.2
       const totalDeductions = discounts + returnSales;
       
@@ -617,48 +603,6 @@ export const reportController = {
       const netSales = grossSales - totalDeductions;
 
       // (4) Giá vốn hàng bán
-<<<<<<< HEAD
-      // Note: OrderItem.costPrice is a Prisma Decimal that's truthy even when 0
-      // Must convert to Number first, then check > 0 before using fallback
-      let cogsSales = 0;
-      orders.forEach((o: any) => {
-        (o.items || []).forEach((item: any) => {
-          const itemCost = Number(item.costPrice ?? 0);
-          const productCost = Number(item.product?.costPrice ?? item.product?.cost_price ?? 0);
-          const costUnit = itemCost > 0 ? itemCost : productCost;
-          cogsSales += costUnit * Number(item.quantity || 0);
-        });
-      });
-
-      let cogsReturns = 0;
-      returns.forEach((r: any) => {
-        (r.items || []).forEach((item: any) => {
-          // ReturnItem has no costPrice column, use Product.costPrice
-          const productCost = Number(item.product?.costPrice ?? item.product?.cost_price ?? 0);
-          cogsReturns += productCost * Number(item.quantity || 0);
-        });
-      });
-
-      const netCogs = cogsSales - cogsReturns;
-      
-      // (5) Lợi nhuận gộp = 3 - 4
-      const grossProfit = netSales - netCogs;
-      
-      // (6) Chi phí = 0 (KiotViet: voucher, ĐTGH, hoàn tiền, etc. all = 0)
-      const operatingExpenses = 0;
-      
-      // (7) Lợi nhuận từ HĐKD = 5 - 6
-      const operatingProfit = grossProfit - operatingExpenses;
-      
-      // (8) Thu nhập khác = 0
-      const otherIncome = 0;
-      
-      // (9) Chi phí khác = 0
-      const otherExpenses = 0;
-      
-      // (10) Lợi nhuận thuần = (7 + 8) - 9
-      const netProfit = operatingProfit + otherIncome - otherExpenses;
-=======
       const cogsSales = Number(cogsSalesRes?.[0]?.cogs || 0);
       const cogsReturns = Number(cogsReturnsRes?.[0]?.cogs || 0);
       const netCogs = Math.max(0, cogsSales - cogsReturns);
@@ -691,13 +635,10 @@ export const reportController = {
       // (7) Lợi nhuận từ hoạt động kinh doanh = (5) - (6)
       const operatingProfit = grossProfit - operatingExpenses;
 
-      // (8) Thu nhập khác
-
       // (9) LỢI NHUẬN THUẦN (LÃI RÒNG) = (7) + (8)
       const netProfit = operatingProfit + otherIncome;
->>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
 
-      res.json({
+      const result = {
         grossSales,
         grossRevenue: grossSales,
         discounts,
@@ -716,14 +657,9 @@ export const reportController = {
         operatingProfit,
         otherIncome,
         netProfit
-<<<<<<< HEAD
-
-      });
-=======
       };
-      memoryCache.set(cacheKey, result, 600);
+      if (memoryCache && cacheKey) memoryCache.set(cacheKey, result, 600);
       res.json(result);
->>>>>>> 282240f (feat(report): Update report controller for End of Day Report)
     } catch (error) {
       next(error);
     }

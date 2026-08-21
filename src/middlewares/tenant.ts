@@ -22,13 +22,22 @@ export const tenantResolver = async (req: TenantRequest, res: Response, next: Ne
   }
 
   try {
-    // Lấy subdomain từ header x-tenant-subdomain do frontend gửi lên, mặc định là 'demo'
     let subdomain = (req.headers['x-tenant-subdomain'] as string) || 'demo';
+    if (!subdomain || subdomain === 'localhost' || subdomain === '127.0.0.1') {
+      subdomain = 'demo';
+    }
 
     // 2. Tìm kiếm tenant trong Database
-    const tenant = await prisma.tenant.findUnique({
+    let tenant = await prisma.tenant.findUnique({
       where: { subdomain },
     });
+
+    if (!tenant) {
+      tenant = await prisma.tenant.findFirst({
+        where: { isActive: true },
+        orderBy: { id: 'asc' }
+      });
+    }
 
     if (!tenant) {
       return res.status(404).json({ message: `Cửa hàng '${subdomain}' không tồn tại trên hệ thống.` });
