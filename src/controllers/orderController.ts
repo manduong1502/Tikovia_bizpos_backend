@@ -300,10 +300,26 @@ export const orderController = {
         let orderLat: number | null = body.latitude || null;
         let orderLng: number | null = body.longitude || null;
 
+        let targetCustomerId = body.customerId || null;
+        if (!targetCustomerId && body.receiverName) {
+          const matchedCust = await tx.customer.findFirst({
+            where: {
+              tenantId,
+              OR: [
+                { name: { equals: body.receiverName.trim(), mode: 'insensitive' } },
+                ...(body.receiverPhone ? [{ phone: { contains: body.receiverPhone.trim() } }] : [])
+              ]
+            }
+          });
+          if (matchedCust) {
+            targetCustomerId = matchedCust.id;
+          }
+        }
+
         let customerDebtBefore = 0;
-        if (body.customerId) {
+        if (targetCustomerId) {
           const cust = await tx.customer.findFirst({
-            where: { id: body.customerId, tenantId }
+            where: { id: targetCustomerId, tenantId }
           });
           if (cust) {
             customerName = cust.name;
@@ -320,7 +336,7 @@ export const orderController = {
         const newOrder = await tx.order.create({
           data: {
             code,
-            customerId: body.customerId,
+            customerId: targetCustomerId,
             userId: req.user!.id,
             subtotal,
             discount: body.discount,
@@ -662,8 +678,65 @@ export const orderController = {
           if (body.driverName !== undefined) dataToUpdate.driverName = body.driverName;
           if (body.deliveryStatus !== undefined) dataToUpdate.deliveryStatus = body.deliveryStatus;
           if (body.latitude !== undefined) dataToUpdate.latitude = body.latitude;
-          if (body.longitude !== undefined) dataToUpdate.longitude = body.longitude;
-          
+          if (body.customerId !== undefined) {
+            const newCustomerId = body.customerId ? Number(body.customerId) : null;
+            const oldCustomerId = order.customerId;
+
+            if (newCustomerId !== oldCustomerId) {
+              const orderTotal = Number(order.total);
+              const orderPaid = body.paid !== undefined ? Number(body.paid) : Number(order.paid);
+              const unpaid = orderTotal - orderPaid;
+
+              // 1. If old customer existed, decrement debt & order stats
+              if (oldCustomerId) {
+                await tx.customer.update({
+                  where: { id: oldCustomerId },
+                  data: {
+                    totalDebt: { decrement: unpaid },
+                    totalSpent: { decrement: orderTotal },
+                    totalOrders: { decrement: 1 }
+                  }
+                });
+              }
+
+              // 2. If new customer provided, increment debt & order stats
+              let customerDebtBefore = 0;
+              let newCustomerName = 'Khách lẻ';
+              if (newCustomerId) {
+                const newCust = await tx.customer.findFirst({
+                  where: { id: newCustomerId, tenantId }
+                });
+                if (newCust) {
+                  customerDebtBefore = Number(newCust.totalDebt || 0);
+                  newCustomerName = newCust.name;
+                  await tx.customer.update({
+                    where: { id: newCustomerId },
+                    data: {
+                      totalDebt: { increment: unpaid },
+                      totalSpent: { increment: orderTotal },
+                      totalOrders: { increment: 1 },
+                      lastTransaction: new Date()
+                    }
+                  });
+                }
+              }
+
+              dataToUpdate.customerId = newCustomerId;
+              dataToUpdate.oldDebt = customerDebtBefore;
+              dataToUpdate.newDebt = customerDebtBefore + unpaid;
+
+              // 3. Update existing Cashbook Entry partner info if any
+              await tx.cashbookEntry.updateMany({
+                where: { tenantId, orderId: id },
+                data: {
+                  customerId: newCustomerId,
+                  partnerType: newCustomerId ? 'customer' : 'other',
+                  partnerName: newCustomerName
+                }
+              });
+            }
+          }
+
           if (body.paid !== undefined) {
             const oldPaid = Number(order.paid);
             const newPaid = Number(body.paid);
