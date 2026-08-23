@@ -179,7 +179,23 @@ export const orderController = {
 
       const where: any = { tenantId };
       const customerIdParam = req.query.customerId ? parseInt(req.query.customerId as string, 10) : undefined;
-      if (customerIdParam && !isNaN(customerIdParam)) where.customerId = customerIdParam;
+      if (customerIdParam && !isNaN(customerIdParam)) {
+        const cust = await prisma.customer.findFirst({
+          where: { id: customerIdParam, tenantId },
+          select: { id: true, phone: true, code: true, name: true }
+        });
+        const orConditions: any[] = [{ customerId: customerIdParam }];
+        if (cust) {
+          if (cust.phone && cust.phone.trim().length >= 8) {
+            orConditions.push({ receiverPhone: cust.phone.trim() });
+            orConditions.push({ customer: { phone: cust.phone.trim() } });
+          }
+          if (cust.code && cust.code.trim()) {
+            orConditions.push({ customer: { code: cust.code.trim() } });
+          }
+        }
+        where.OR = orConditions;
+      }
       if (status) where.status = status;
       if (from || to) {
         where.createdAt = {};

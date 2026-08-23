@@ -101,7 +101,7 @@ export const cashbookController = {
 
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const tenantId = Number((req as any).tenant?.id || 1);
+      const tenantId = (req as any).user?.tenantId || Number((req as any).tenant?.id || 1);
       const search = req.query.search as string;
       const type = req.query.type as string; // 'thu', 'chi', 'INCOME', 'EXPENSE'
       const paymentMethod = req.query.paymentMethod as string;
@@ -114,7 +114,22 @@ export const cashbookController = {
 
       const where: any = { tenantId };
       const customerIdParam = req.query.customerId ? parseInt(req.query.customerId as string, 10) : undefined;
-      if (customerIdParam && !isNaN(customerIdParam)) where.customerId = customerIdParam;
+      if (customerIdParam && !isNaN(customerIdParam)) {
+        const cust = await prisma.customer.findFirst({
+          where: { id: customerIdParam, tenantId },
+          select: { id: true, phone: true, code: true, name: true }
+        });
+        const orConditions: any[] = [
+          { customerId: customerIdParam },
+          { order: { customerId: customerIdParam } },
+          { return: { customerId: customerIdParam } }
+        ];
+        if (cust && cust.phone && cust.phone.trim().length >= 8) {
+          orConditions.push({ partnerPhone: cust.phone.trim() });
+          orConditions.push({ order: { receiverPhone: cust.phone.trim() } });
+        }
+        where.OR = orConditions;
+      }
 
       if (from || to) {
         where.createdAt = {};
