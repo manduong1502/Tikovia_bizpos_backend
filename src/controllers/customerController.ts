@@ -230,14 +230,70 @@ export const customerController = {
   delete: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tenantId;
+      const customerId = Number(req.params.id);
       
       const existingCustomer = await prisma.customer.findFirst({
-        where: { id: Number(req.params.id), tenantId }
+        where: { id: customerId, tenantId }
       });
       if (!existingCustomer) return res.status(404).json({ message: 'Không tìm thấy khách hàng' });
 
-      await prisma.customer.delete({ where: { id: Number(req.params.id) } });
-      res.json({ message: 'Đã xóa khách hàng' });
+      await prisma.$transaction(async (tx) => {
+        // 1. Find all order IDs belonging to this customer
+        const customerOrders = await tx.order.findMany({
+          where: { customerId, tenantId },
+          select: { id: true }
+        });
+        const orderIds = customerOrders.map(o => o.id);
+
+        // 2. Find all return IDs belonging to this customer
+        const customerReturns = await tx.return.findMany({
+          where: { customerId, tenantId },
+          select: { id: true }
+        });
+        const returnIds = customerReturns.map(r => r.id);
+
+        // 3. Delete Cashbook entries associated with customer or its orders/returns
+        await tx.cashbookEntry.deleteMany({
+          where: {
+            tenantId,
+            OR: [
+              { customerId },
+              ...(orderIds.length > 0 ? [{ orderId: { in: orderIds } }] : []),
+              ...(returnIds.length > 0 ? [{ returnId: { in: returnIds } }] : [])
+            ]
+          }
+        });
+
+        // 4. Delete return items and returns
+        if (returnIds.length > 0) {
+          await tx.returnItem.deleteMany({
+            where: { returnId: { in: returnIds } }
+          });
+          await tx.return.deleteMany({
+            where: { id: { in: returnIds }, tenantId }
+          });
+        }
+
+        // 5. Delete order items and orders
+        if (orderIds.length > 0) {
+          await tx.orderItem.deleteMany({
+            where: { orderId: { in: orderIds } }
+          });
+          await tx.order.deleteMany({
+            where: { id: { in: orderIds }, tenantId }
+          });
+        }
+
+        // 6. Delete the customer
+        await tx.customer.delete({
+          where: { id: customerId }
+        });
+      });
+
+      if (memoryCache) {
+        memoryCache.clearPattern(`tenant:${tenantId}:*`);
+      }
+      res.json({ message: 'Đã xóa khách hàng và toàn bộ hóa đơn, giao dịch liên quan thành công' });
     } catch (error) {
       next(error);
     }
