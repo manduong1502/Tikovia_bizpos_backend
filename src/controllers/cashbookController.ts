@@ -335,29 +335,47 @@ export const cashbookController = {
         const typeEnum = existingEntry.type;
 
         // Revert Customer debt if linked
+        let cust = null;
         if (existingEntry.customerId) {
-          const cust = await tx.customer.findFirst({ where: { id: existingEntry.customerId, tenantId } });
-          if (cust) {
-            const debtChange = typeEnum === 'INCOME' ? amountNum : -amountNum;
-            const newDebt = Number(cust.totalDebt) + debtChange;
-             await tx.customer.update({
-               where: { id: cust.id },
-               data: { totalDebt: newDebt, lastTransaction: new Date() }
-             });
-           }
+          cust = await tx.customer.findFirst({ where: { id: existingEntry.customerId, tenantId } });
+        } else if (existingEntry.partnerType === 'customer') {
+          if (existingEntry.partnerPhone) {
+            cust = await tx.customer.findFirst({ where: { phone: existingEntry.partnerPhone, tenantId } });
+          }
+          if (!cust && existingEntry.partnerName) {
+            cust = await tx.customer.findFirst({ where: { name: existingEntry.partnerName, tenantId } });
+          }
+        }
+
+        if (cust) {
+          const debtChange = typeEnum === 'INCOME' ? amountNum : -amountNum;
+          const newDebt = Math.max(0, Number(cust.totalDebt) + debtChange);
+          await tx.customer.update({
+            where: { id: cust.id },
+            data: { totalDebt: newDebt, lastTransaction: new Date() }
+          });
         }
 
         // Revert Supplier debt if linked
+        let sup = null;
         if (existingEntry.supplierId) {
-          const sup = await tx.supplier.findFirst({ where: { id: existingEntry.supplierId, tenantId } });
-          if (sup) {
-            const debtChange = typeEnum === 'EXPENSE' ? amountNum : -amountNum;
-            const newDebt = Number(sup.totalDebt) + debtChange;
-             await tx.supplier.update({
-               where: { id: sup.id },
-               data: { totalDebt: newDebt, lastTransaction: new Date() }
-             });
-           }
+          sup = await tx.supplier.findFirst({ where: { id: existingEntry.supplierId, tenantId } });
+        } else if (existingEntry.partnerType === 'supplier') {
+          if (existingEntry.partnerPhone) {
+            sup = await tx.supplier.findFirst({ where: { phone: existingEntry.partnerPhone, tenantId } });
+          }
+          if (!sup && existingEntry.partnerName) {
+            sup = await tx.supplier.findFirst({ where: { name: existingEntry.partnerName, tenantId } });
+          }
+        }
+
+        if (sup) {
+          const debtChange = typeEnum === 'EXPENSE' ? amountNum : -amountNum;
+          const newDebt = Math.max(0, Number(sup.totalDebt) + debtChange);
+          await tx.supplier.update({
+            where: { id: sup.id },
+            data: { totalDebt: newDebt, lastTransaction: new Date() }
+          });
         }
 
         return tx.cashbookEntry.update({
@@ -365,6 +383,10 @@ export const cashbookController = {
           data: { status: 'cancelled' },
         });
       });
+
+      if (memoryCache) {
+        memoryCache.clearPattern(`tenant:${tenantId}:*`);
+      }
 
       res.json({ message: 'Đã hủy phiếu thành công', entry });
     } catch (error: any) {

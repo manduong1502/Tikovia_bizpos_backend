@@ -434,7 +434,7 @@ export const orderController = {
         return newOrder;
       });
 
-      memoryCache.clearPattern(`tenant:${tenantId}:products`);
+      memoryCache.clearPattern(`tenant:${tenantId}:*`);
       
       // Đồng bộ đơn hàng sang ChatTikovia (Tự động giao việc cho Kho Đông Lạnh)
       syncOrderToChatTikovia(order).catch(err => {
@@ -503,7 +503,7 @@ export const orderController = {
         });
       });
 
-      memoryCache.clearPattern(`tenant:${tenantId}:products`);
+      memoryCache.clearPattern(`tenant:${tenantId}:*`);
       res.json({ message: 'Đã hủy đơn hàng' });
     } catch (error) {
       next(error);
