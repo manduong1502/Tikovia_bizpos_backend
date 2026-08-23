@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { config } from '../config';
 import { AuthRequest } from '../middlewares/auth';
+import { memoryCache } from '../utils/cache';
 
 const customerSchema = z.object({
   code: z.preprocess((val) => val === null || val === '' ? undefined : val, z.string().optional()),
