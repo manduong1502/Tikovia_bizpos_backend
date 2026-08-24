@@ -12,6 +12,14 @@ export const config = {
   cors: {
     origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:5173', 'https://bizpos.tikovia.vn'],
   },
+  smtp: {
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER || process.env.GMAIL_USER || '',
+    pass: process.env.SMTP_PASS || process.env.GMAIL_PASS || '',
+    from: process.env.SMTP_FROM || '"Tiko BizPOS Bảo Mật" <no-reply@tikovia.vn>',
+  },
   pagination: {
     defaultPage: 1,
     defaultLimit: 20,

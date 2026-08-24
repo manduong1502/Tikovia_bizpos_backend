@@ -5,6 +5,10 @@ import { authenticate, authorize, authenticateSuperAdmin } from '../middlewares/
 const router = Router();
 
 router.post('/login', authController.login);
+router.post('/verify-otp', authController.verifyOtp);
+router.post('/resend-otp', authController.resendOtp);
+router.get('/devices', authenticate, authController.getDevices);
+router.delete('/devices/:id', authenticate, authController.revokeDevice);
 router.post('/register', authenticate, authorize('ADMIN'), authController.register);
 router.post('/register-tenant', authController.registerTenant);
 router.get('/tenant', authController.getTenant);

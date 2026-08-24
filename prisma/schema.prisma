@@ -59,6 +59,8 @@ model User {
   orders         Order[]
   cashbookEntries CashbookEntry[]
   inventoryChecks InventoryCheck[] @relation("UserInventoryChecks")
+  trustedDevices  TrustedDevice[]
+  emailOtpTokens  EmailOtpToken[]
 
   @@unique([tenantId, username])
   @@unique([tenantId, email])
@@ -70,6 +72,43 @@ enum Role {
   ADMIN
   MANAGER
   STAFF
+  CASHIER
+  ACCOUNTANT
+}
+
+// ─── Thiết bị tin cậy (Trusted Devices - 30 ngày) ───
+model TrustedDevice {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceToken  String   @unique // UUID định danh thiết bị
+  deviceName   String?  // VD: "Chrome trên Windows 11", "Safari trên iOS"
+  ipAddress    String?  // Địa chỉ IP
+  userAgent    String?  // User-Agent chi tiết
+  trustedUntil DateTime // Thời hạn tin cậy (30 ngày)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([deviceToken])
+}
+
+// ─── Mã xác thực OTP qua Email (2FA) ───
+model EmailOtpToken {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  otpCode    String   // Mã OTP 6 số
+  purpose    String   @default("LOGIN_2FA") // LOGIN_2FA, RESET_PASSWORD
+  ipAddress  String?
+  deviceName String?
+  expiresAt  DateTime // Thời hạn (5 phút)
+  isUsed     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 // ─── Nhóm hàng ───

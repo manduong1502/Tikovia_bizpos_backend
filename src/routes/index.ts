@@ -69,8 +69,12 @@ router.get('/dashboard', authenticate, dashboardController.get);
 
 // ─── Users / Employees ───
 router.get('/users', authenticate, authorize('ADMIN', 'MANAGER'), userController.getAll);
+router.post('/users', authenticate, authorize('ADMIN'), userController.create);
 router.put('/users/:id', authenticate, authorize('ADMIN'), userController.update);
+router.delete('/users/:id', authenticate, authorize('ADMIN'), userController.delete);
 router.patch('/users/:id/toggle', authenticate, authorize('ADMIN'), userController.toggleActive);
+router.get('/users/:id/devices', authenticate, authorize('ADMIN'), userController.getUserDevices);
+router.delete('/users/:id/devices/:deviceId', authenticate, authorize('ADMIN'), userController.revokeUserDevice);
 
 
 // ─── Purchase Orders (Nhập hàng) ───
