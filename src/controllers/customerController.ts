@@ -59,6 +59,58 @@ function parseExcelDate(val: any): Date | null {
   return null;
 }
 
+function parseQueryDate(val: any, isEndOfDay = false): Date | null {
+  if (!val) return null;
+  if (val instanceof Date && !isNaN(val.getTime())) return val;
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // Format YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const parts = str.split('T')[0].split('-');
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    if (isEndOfDay) {
+      return new Date(Date.UTC(year, month, day, 16, 59, 59, 999));
+    } else {
+      return new Date(Date.UTC(year, month, day, -7, 0, 0, 0));
+    }
+  }
+
+  // Format DD/MM/YYYY
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(str)) {
+    const parts = str.split('/');
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const year = parseInt(parts[2], 10);
+    if (isEndOfDay) {
+      return new Date(Date.UTC(year, month, day, 16, 59, 59, 999));
+    } else {
+      return new Date(Date.UTC(year, month, day, -7, 0, 0, 0));
+    }
+  }
+
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    if (isEndOfDay) {
+      d.setHours(23, 59, 59, 999);
+    } else {
+      d.setHours(0, 0, 0, 0);
+    }
+    return d;
+  }
+  return null;
+}
+
+function toNum(val: any): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (typeof val?.toNumber === 'function') return val.toNumber();
+  const n = Number(String(val));
+  return isNaN(n) ? 0 : n;
+}
+
 export const customerController = {
   getAll: async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -70,6 +122,16 @@ export const customerController = {
       const address = (req.query.address as string) || '';
       const note = (req.query.note as string) || '';
       const orderCode = (req.query.orderCode as string) || '';
+
+      const startDateStr = (req.query.startDate as string) || (req.query.transactionStartDate as string) || '';
+      const endDateStr = (req.query.endDate as string) || (req.query.transactionEndDate as string) || '';
+      const createdStartDateStr = (req.query.createdStartDate as string) || '';
+      const createdEndDateStr = (req.query.createdEndDate as string) || '';
+
+      const startDate = parseQueryDate(startDateStr, false);
+      const endDate = parseQueryDate(endDateStr, true);
+      const createdStartDate = parseQueryDate(createdStartDateStr, false);
+      const createdEndDate = parseQueryDate(createdEndDateStr, true);
 
       const where: any = { tenantId };
       const andConditions: any[] = [];
@@ -109,11 +171,40 @@ export const customerController = {
         });
       }
 
+      // Filter by Transaction date range (Order, Return, Cashbook, or Customer creation)
+      const hasPeriodFilter = Boolean(startDate || endDate);
+      if (hasPeriodFilter) {
+        const txDateCond: any = {};
+        if (startDate) txDateCond.gte = startDate;
+        if (endDate) txDateCond.lte = endDate;
+
+        andConditions.push({
+          OR: [
+            { orders: { some: { createdAt: txDateCond, status: { not: 'CANCELLED' } } } },
+            { returns: { some: { createdAt: txDateCond, status: { not: 'CANCELLED' } } } },
+            { cashbookEntries: { some: { createdAt: txDateCond, status: { not: 'cancelled' } } } },
+            { createdAt: txDateCond }
+          ]
+        });
+      }
+
+      // Filter by Account creation date range
+      if (createdStartDate || createdEndDate) {
+        const createdDateCond: any = {};
+        if (createdStartDate) createdDateCond.gte = createdStartDate;
+        if (createdEndDate) createdDateCond.lte = createdEndDate;
+        andConditions.push({ createdAt: createdDateCond });
+      }
+
       if (andConditions.length > 0) {
         where.AND = andConditions;
       }
 
-      const [data, total] = await Promise.all([
+      const txDateCond: any = {};
+      if (startDate) txDateCond.gte = startDate;
+      if (endDate) txDateCond.lte = endDate;
+
+      const [rawData, total] = await Promise.all([
         prisma.customer.findMany({
           where,
           skip: (page - 1) * limit,
@@ -137,7 +228,7 @@ export const customerController = {
             latitude: true,
             longitude: true,
             createdAt: true,
-            updatedAt: true
+            updatedAt: true,
           },
           orderBy: [
             { lastTransaction: { sort: 'desc', nulls: 'last' } },
@@ -148,7 +239,192 @@ export const customerController = {
         prisma.customer.count({ where }),
       ]);
 
-      res.json({ data, total, page, limit, totalPages: Math.ceil(total / limit) });
+      const periodSpentMap: Record<number, number> = {};
+      const periodOrdersMap: Record<number, number> = {};
+      const debtDeltaAfterMap: Record<number, number> = {};
+
+      if (hasPeriodFilter && rawData.length > 0) {
+        const customerIds = rawData.map(c => c.id);
+
+        const [
+          ordersInPeriod,
+          returnsInPeriod,
+          ordersAfter,
+          returnsAfter,
+          cbExpenseAfter,
+          cbIncomeAfter
+        ] = await Promise.all([
+          prisma.order.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: customerIds },
+              status: { not: 'CANCELLED' },
+              ...(Object.keys(txDateCond).length > 0 ? { createdAt: txDateCond } : {})
+            },
+            _sum: { total: true },
+            _count: { id: true }
+          }),
+          prisma.return.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: customerIds },
+              status: { not: 'CANCELLED' },
+              ...(Object.keys(txDateCond).length > 0 ? { createdAt: txDateCond } : {})
+            },
+            _sum: { total: true }
+          }),
+          endDate ? prisma.order.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: customerIds },
+              status: { not: 'CANCELLED' },
+              createdAt: { gt: endDate }
+            },
+            _sum: { total: true, paid: true }
+          }) : Promise.resolve([] as any[]),
+          endDate ? prisma.return.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: customerIds },
+              status: { not: 'CANCELLED' },
+              createdAt: { gt: endDate }
+            },
+            _sum: { total: true, paid: true }
+          }) : Promise.resolve([] as any[]),
+          endDate ? prisma.cashbookEntry.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: customerIds },
+              status: { not: 'cancelled' },
+              type: 'EXPENSE',
+              createdAt: { gt: endDate }
+            },
+            _sum: { amount: true }
+          }) : Promise.resolve([] as any[]),
+          endDate ? prisma.cashbookEntry.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: customerIds },
+              status: { not: 'cancelled' },
+              type: 'INCOME',
+              createdAt: { gt: endDate }
+            },
+            _sum: { amount: true }
+          }) : Promise.resolve([] as any[]),
+        ]);
+
+        const orderSumMap = new Map<number, number>();
+        const orderCountMap = new Map<number, number>();
+        ordersInPeriod.forEach(o => {
+          if (o.customerId) {
+            orderSumMap.set(o.customerId, toNum(o._sum.total));
+            orderCountMap.set(o.customerId, o._count.id);
+          }
+        });
+
+        const returnSumMap = new Map<number, number>();
+        returnsInPeriod.forEach(r => {
+          if (r.customerId) {
+            returnSumMap.set(r.customerId, toNum(r._sum.total));
+          }
+        });
+
+        customerIds.forEach(cId => {
+          const ordSum = orderSumMap.get(cId) || 0;
+          const retSum = returnSumMap.get(cId) || 0;
+          periodSpentMap[cId] = Math.max(0, ordSum - retSum);
+          periodOrdersMap[cId] = orderCountMap.get(cId) || 0;
+        });
+
+        if (endDate) {
+          const orderDeltaAfterMap = new Map<number, number>();
+          ordersAfter.forEach((o: any) => {
+            if (o.customerId) {
+              orderDeltaAfterMap.set(o.customerId, toNum(o._sum.total));
+            }
+          });
+
+          const returnDeltaAfterMap = new Map<number, number>();
+          returnsAfter.forEach((r: any) => {
+            if (r.customerId) {
+              returnDeltaAfterMap.set(r.customerId, toNum(r._sum.total));
+            }
+          });
+
+          const cbExpenseMap = new Map<number, number>();
+          cbExpenseAfter.forEach((cb: any) => {
+            if (cb.customerId) {
+              cbExpenseMap.set(cb.customerId, toNum(cb._sum.amount));
+            }
+          });
+
+          const cbIncomeMap = new Map<number, number>();
+          cbIncomeAfter.forEach((cb: any) => {
+            if (cb.customerId) {
+              cbIncomeMap.set(cb.customerId, toNum(cb._sum.amount));
+            }
+          });
+
+          customerIds.forEach(cId => {
+            const oTotal = orderDeltaAfterMap.get(cId) || 0;
+            const rTotal = returnDeltaAfterMap.get(cId) || 0;
+            const cbExp = cbExpenseMap.get(cId) || 0;
+            const cbInc = cbIncomeMap.get(cId) || 0;
+            debtDeltaAfterMap[cId] = (oTotal + cbExp) - (rTotal + cbInc);
+          });
+        }
+      }
+
+      const data = rawData.map((c: any) => {
+        const lifetimeSpent = toNum(c.totalSpent);
+        const lifetimeDebt = toNum(c.totalDebt);
+        const lifetimeOrders = toNum(c.totalOrders);
+
+        if (hasPeriodFilter) {
+          const periodSpent = periodSpentMap[c.id] ?? 0;
+          const periodOrders = periodOrdersMap[c.id] ?? 0;
+          const netDebtDeltaAfter = debtDeltaAfterMap[c.id] ?? 0;
+          const periodDebt = lifetimeDebt - netDebtDeltaAfter;
+
+          return {
+            ...c,
+            lifetimeSpent,
+            lifetimeDebt,
+            lifetimeOrders,
+            periodSpent,
+            periodOrders,
+            periodDebt,
+            totalSpent: periodSpent,
+            total_spent: periodSpent,
+            totalOrders: periodOrders,
+            totalDebt: periodDebt,
+            debt: periodDebt,
+          };
+        }
+
+        return {
+          ...c,
+          lifetimeSpent,
+          lifetimeDebt,
+          lifetimeOrders,
+          periodSpent: lifetimeSpent,
+          periodOrders: lifetimeOrders,
+          totalSpent: lifetimeSpent,
+          total_spent: lifetimeSpent,
+          totalDebt: lifetimeDebt,
+          debt: lifetimeDebt,
+          totalOrders: lifetimeOrders,
+        };
+      });
+
+      res.json({
+        data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        dateRange: hasPeriodFilter ? { startDate, endDate } : null,
+      });
     } catch (error) {
       next(error);
     }
