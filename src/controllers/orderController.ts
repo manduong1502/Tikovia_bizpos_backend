@@ -262,8 +262,15 @@ export const orderController = {
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
+      const param = String(req.params.id || '').trim();
+      const numId = Number(param);
+      const isNum = !isNaN(numId) && String(numId) === param;
+
       const order = await prisma.order.findFirst({
-        where: { id: Number(req.params.id), tenantId },
+        where: {
+          tenantId,
+          ...(isNum ? { OR: [{ id: numId }, { code: param }] } : { code: param }),
+        },
         include: {
           customer: true,
           user: { select: { id: true, fullName: true } },
