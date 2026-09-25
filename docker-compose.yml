@@ -25,6 +25,9 @@ services:
     build: .
     container_name: tiko-bizpos-api
     restart: always
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "4001:4001"
     environment:
@@ -34,6 +37,12 @@ services:
       PORT: "4001"
       NODE_ENV: "production"
       CORS_ORIGIN: "https://bizpos.tikovia.vn,http://localhost:5173,https://delivery.tikovia.vn,http://localhost:3000,http://localhost:8080"
+      SMTP_HOST: "smtp.gmail.com"
+      SMTP_PORT: "587"
+      SMTP_SECURE: "false"
+      SMTP_USER: "tikovia.dn@gmail.com"
+      SMTP_PASS: "sbtogeukmjoinvdu"
+      SMTP_FROM: "Tiko BizPOS Bảo Mật <tikovia.dn@gmail.com>"
     volumes:
       - /mnt/ssd500/tiko:/mnt/ssd500/tiko
     depends_on:
