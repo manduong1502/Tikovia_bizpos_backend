@@ -12,6 +12,7 @@ const returnItemSchema = z.object({
 });
 
 const createReturnSchema = z.object({
+  code: z.string().optional().nullable(),
   orderId: z.number().int().optional().nullable(),
   customerId: z.number().int().optional().nullable(),
   items: z.array(returnItemSchema).min(1, 'Đơn trả hàng phải có ít nhất 1 sản phẩm'),
@@ -61,15 +62,27 @@ function parseExcelDate(val: any): Date | null {
   return isNaN(fallback.getTime()) ? null : fallback;
 }
 
-// Auto-generate return code using SequenceTracker scoped by tenantId
+// Auto-generate return code using SequenceTracker scoped by tenantId with collision avoidance
 async function generateReturnCode(tenantId: number, txClient?: any): Promise<string> {
   const db = txClient || prisma;
-  const seq = await db.sequenceTracker.upsert({
+  let seq = await db.sequenceTracker.upsert({
     where: { tenantId_name: { tenantId, name: 'RETURN' } },
     update: { value: { increment: 1 } },
     create: { tenantId, name: 'RETURN', value: 1 }
   });
-  return `TH${String(seq.value).padStart(6, '0')}`;
+
+  let code = `TH${String(seq.value).padStart(6, '0')}`;
+  let exists = await db.return.findFirst({ where: { tenantId, code } });
+  while (exists) {
+    seq = await db.sequenceTracker.update({
+      where: { tenantId_name: { tenantId, name: 'RETURN' } },
+      data: { value: { increment: 1 } }
+    });
+    code = `TH${String(seq.value).padStart(6, '0')}`;
+    exists = await db.return.findFirst({ where: { tenantId, code } });
+  }
+
+  return code;
 }
 
 export const returnController = {
@@ -121,9 +134,15 @@ export const returnController = {
   getById: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = (req as any).tenant!.id;
-      const id = Number(req.params.id);
+      const param = String(req.params.id || '').trim();
+      const numId = Number(param);
+      const isNum = !isNaN(numId) && String(numId) === param;
+
       const returnDoc = await prisma.return.findFirst({
-        where: { id, tenantId },
+        where: {
+          tenantId,
+          ...(isNum ? { OR: [{ id: numId }, { code: param }] } : { code: param }),
+        },
         include: {
           customer: true,
           order: { select: { id: true, code: true } },
@@ -149,6 +168,14 @@ export const returnController = {
           if (!ord) throw new Error('Không tìm thấy hóa đơn liên kết');
         }
 
+        // Verify customer exists in the same tenant if provided
+        if (body.customerId) {
+          const cust = await tx.customer.findFirst({ where: { id: body.customerId, tenantId } });
+          if (!cust) {
+            body.customerId = null;
+          }
+        }
+
         // Verify all products belong to this tenant
         const productIds = body.items.map(it => it.productId);
         const uniqueProductIds = Array.from(new Set(productIds));
@@ -162,7 +189,15 @@ export const returnController = {
           throw new Error('Một hoặc nhiều sản phẩm không hợp lệ hoặc không thuộc cửa hàng này');
         }
 
-        const code = await generateReturnCode(tenantId, tx);
+        let code = body.code?.trim();
+        if (code) {
+          const existingReturn = await tx.return.findFirst({ where: { tenantId, code } });
+          if (existingReturn) {
+            throw new Error(`Mã phiếu trả ${code} đã tồn tại trong hệ thống`);
+          }
+        } else {
+          code = await generateReturnCode(tenantId, tx);
+        }
         let total = 0;
         const itemsData = body.items.map(item => {
           const itemTotal = item.quantity * item.price;
@@ -230,7 +265,7 @@ export const returnController = {
         // Tạo phiếu chi sổ quỹ nếu thực tế có trả lại tiền mặt/chuyển khoản cho khách
         if (body.paid > 0) {
           const customerObj = body.customerId ? await tx.customer.findFirst({ where: { id: body.customerId, tenantId } }) : null;
-          const cashbookCode = `TCM${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)}`;
+          const cashbookCode = `TCM${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
           
           await tx.cashbookEntry.create({
             data: {
@@ -268,13 +303,21 @@ export const returnController = {
   update: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tenantId;
-      const id = Number(req.params.id);
+      const param = String(req.params.id || '').trim();
+      const numId = Number(param);
+      const isNum = !isNaN(numId) && String(numId) === param;
+
       const { reason } = req.body;
-      const ret = await prisma.return.findFirst({ where: { id, tenantId } });
+      const ret = await prisma.return.findFirst({
+        where: {
+          tenantId,
+          ...(isNum ? { OR: [{ id: numId }, { code: param }] } : { code: param }),
+        }
+      });
       if (!ret) return res.status(404).json({ message: 'Không tìm thấy phiếu trả hàng' });
       
       const updated = await prisma.return.update({
-        where: { id },
+        where: { id: ret.id },
         data: { reason },
       });
       res.json(updated);
@@ -287,10 +330,15 @@ export const returnController = {
   cancel: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user!.tenantId;
-      const id = Number(req.params.id);
+      const param = String(req.params.id || '').trim();
+      const numId = Number(param);
+      const isNum = !isNaN(numId) && String(numId) === param;
       
       const ret = await prisma.return.findFirst({
-        where: { id, tenantId },
+        where: {
+          tenantId,
+          ...(isNum ? { OR: [{ id: numId }, { code: param }] } : { code: param }),
+        },
         include: { items: true },
       });
       if (!ret) return res.status(404).json({ message: 'Không tìm thấy phiếu trả hàng' });
@@ -298,7 +346,7 @@ export const returnController = {
       
       await prisma.$transaction(async (tx) => {
         await tx.return.update({
-          where: { id },
+          where: { id: ret.id },
           data: { status: 'CANCELLED' },
         });
         
@@ -335,7 +383,7 @@ export const returnController = {
         
         // Hủy phiếu chi quỹ tương ứng
         await tx.cashbookEntry.updateMany({
-          where: { tenantId, returnId: id, status: 'completed' },
+          where: { tenantId, returnId: ret.id, status: 'completed' },
           data: { status: 'cancelled', note: 'Hủy theo phiếu trả hàng bị hủy' }
         });
       });
