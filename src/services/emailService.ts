@@ -142,9 +142,11 @@ export const emailService = {
     try {
       const info = await client.sendMail(mailOptions);
       console.log(`✅ [EmailService] Đã gửi OTP thành công tới ${toEmail} (MessageId: ${info.messageId})`);
+      console.log(`🔑 [OTP CODE]: ${otpCode} (Hết hạn sau ${expiresInMinutes} phút)`);
       return { success: true };
     } catch (err: any) {
       console.error(`❌ [EmailService] Lỗi khi gửi email tới ${toEmail}:`, err.message);
+      console.log(`🔑 [DEV FALLBACK OTP CODE]: ${otpCode}`);
       return { success: false, error: err.message };
     }
   },
